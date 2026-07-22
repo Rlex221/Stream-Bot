@@ -16,9 +16,12 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 # သင့် Render / Railway ရဲ့ Domain URL ကို ဒီနေရာမှာ ထည့်ပါ (အနောက်မှာ / မပါရပါ)
 SERVER_URL = os.environ.get("SERVER_URL", "https://your-app-name.onrender.com")
 
-# Telethon Telegram Client
+# Telethon Telegram Client (Global အနေဖြင့် ကြေညာထားမည်)
 bot = TelegramClient('telethon_stream_bot', API_ID, API_HASH)
 app = FastAPI(title="Telegram Video Streamer")
+
+# Double reply ကို ကာကွယ်ရန် Process လုပ်ပြီးသား Message ID များကို မှတ်ထားမည့် နေရာ
+processed_messages = set()
 
 
 # --- [ HELPER FUNCTIONS ] ---
@@ -77,6 +80,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
     hashtags = re.findall(r'#(\w+)', full_text)
     for tag in hashtags:
         if tag.lower() not in ignore_tags:
+            # CamelCase စာလုံးများကို ခွဲမည် (BlossomsOfPower -> Blossoms Of Power)
             tag_spaced = re.sub(r'([a-z])([A-Z])', r'\1 \2', tag)
             clean_title = tag_spaced.replace("_", " ").strip().title()
             break
@@ -129,7 +133,6 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
 
     return f"{final_name}{ext}"
 
-
 def extract_file_name(message) -> str:
     """Telegram Message မှ File Name နှင့် Caption ကို တွဲဖက်ထုတ်ယူပေးသည့် Function"""
     file_name = None
@@ -156,36 +159,38 @@ def extract_file_name(message) -> str:
 
 # --- [ TELEGRAM BOT SECTION ] ---
 
-@bot.on(events.NewMessage(pattern=r'^/start$'))
+@bot.on(events.NewMessage(pattern='/start', incoming=True))
 async def start_handler(event):
     await event.reply("👋 မင်္ဂလာပါ! ကျွန်တော့်ဆီကို ဘယ်ဗီဒီယိုဖိုင်မဆို ပို့ပေးပါ။ တိုက်ရိုက်ကြည့်ရှုနိုင်မယ့် Stream Link ထုတ်ပေးပါမယ်။")
 
 @bot.on(events.NewMessage(incoming=True))
 async def video_handler(event):
-    # Text သီးသန့် (/start သို့မဟုတ် အခြားစာများ) ဆိုပါက မလုပ်ဆောင်ပါ
+    # /start command ကို ကျော်မည်
     if event.message.text and event.message.text.startswith('/start'):
         return
 
-    # Message တွင် Video သို့မဟုတ် File Document ပါမပါ စစ်ဆေးခြင်း
-    msg = event.message
-    media = msg.video or msg.document
+    # 🛑 ဤနေရာသည် Double Reply ကို တားဆီးပေးမည့် အပိုင်းဖြစ်ပါသည်
+    message_id = event.message.id
+    if message_id in processed_messages:
+        return  # အကယ်၍ မှတ်ထားပြီးသား Message ဖြစ်နေရင် အလုပ်မလုပ်ဘဲ ကျော်သွားပါမည်
+    
+    # Message ID ကို မှတ်သားထားမည်
+    processed_messages.add(message_id)
+    # Memory ပြည့်မသွားစေရန် Cache ID ၅၀၀ ကျော်လျှင် ရှင်းလင်းပေးမည်
+    if len(processed_messages) > 500:
+        processed_messages.clear()
+        processed_messages.add(message_id)
 
-    # Document ဖြစ်ပါက Video ဖိုင် ဟုတ်မဟုတ် ခွဲခြားစစ်ဆေးခြင်း
-    if msg.document and not msg.video:
-        mime = msg.document.mime_type or ""
-        # mime_type မပါခဲ့လျှင် file extension ကို စစ်ပါမည်
-        is_video = mime.startswith("video/") or any(
-            attr.file_name.lower().endswith(('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv'))
-            for attr in msg.document.attributes if hasattr(attr, 'file_name') and attr.file_name
-        )
-        if not is_video:
-            media = None
+    # Video သို့မဟုတ် Document (Video type) ဖြစ်မဖြစ် စစ်ဆေးခြင်း
+    media = event.message.video
+    if not media and event.message.document:
+        if event.message.document.mime_type and event.message.document.mime_type.startswith('video/'):
+            media = event.message.document
 
     if media:
         chat_id = event.chat_id
-        message_id = msg.id
         
-        raw_file_name = extract_file_name(msg)
+        raw_file_name = extract_file_name(event.message)
         safe_file_name = quote(raw_file_name)
         
         stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}/{safe_file_name}"
@@ -257,7 +262,7 @@ async def stream_video(chat_id: int, message_id: int, file_name: str, request: R
             raise HTTPException(status_code=404, detail="Media not found")
         
         file_size = file.size
-        mime_type = getattr(file, 'mime_type', None) or "video/mp4"
+        mime_type = file.mime_type or "video/mp4"
         range_header = request.headers.get("range")
         
         display_name = unquote(file_name)
@@ -330,6 +335,8 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        # 🛑 ဤနေရာတွင် asyncio.run(main()) အစား bot.loop ကိုအသုံးပြုခြင်းဖြင့် 
+        # Uvicorn နှင့် Telethon Event Loop ငြိခြင်းကို ကာကွယ်ပေးပါသည် (Script B ၏ အားသာချက်)
+        bot.loop.run_until_complete(main())
     except KeyboardInterrupt:
         print("\n👋 Bot ရပ်နားလိုက်ပါပြီ။")
