@@ -30,65 +30,81 @@ def myanmar_to_english_digits(text: str) -> str:
     return text.translate(trans_table)
 
 def clean_and_format_title(name: str, caption_text: str = "") -> str:
-    """mmsub ဖြုတ်ခြင်း၊ စာလုံးပိုများရှင်းခြင်း၊ မြန်မာဂဏန်းပြောင်းခြင်း နှင့် EP နံပါတ်စနစ်တကျ ခွဲထုတ်ပေးသည့် Function"""
+    """မည်သည့် Movie/Series ဖိုင်မဆို မလိုလားအပ်သည်များရှင်းထုတ်ပြီး Universal Format ထုတ်ပေးသည့် Function"""
     if not name:
         name = ""
 
-    # မြန်မာဂဏန်းများကို အင်္ဂလိပ်ဂဏန်းသို့ အရင်ပြောင်းမည် (VLC URL Error မတက်စေရန်)
+    # မြန်မာဂဏန်းများကို အင်္ဂလိပ်ဂဏန်းသို့ ပြောင်းမည်
     name = myanmar_to_english_digits(name)
     caption_text = myanmar_to_english_digits(caption_text)
 
-    # 1. Extension ကို သီးသန့်ခွဲထုတ်ထားမည်
+    # 1. Extension ကို ခွဲထုတ်မည်
     ext = ".mp4"
     if "." in name:
         parts = name.rsplit(".", 1)
         if len(parts[1]) <= 4:
             name, ext = parts[0], f".{parts[1]}"
 
-    # 2. Underscore (_), Dot (.) များကို Space သို့ ပြောင်းမည်
-    name = re.sub(r'[\._]', ' ', name)
+    full_text = f"{name} {caption_text}"
 
-    # 3. မလိုလားအပ်သော မကင်းရာမကင်းကြောင်း စာသားများ (Crawler, Joined, mmsub စသည်) ရှင်းထုတ်ခြင်း
+    # 2. Episode သို့မဟုတ် Season ပါမပါ ရှာမည် (S01E02, Ep 01, Episode 1, E1, စသဖြင့်)
+    ep_number = ""
+    season_number = ""
+
+    # Season & Episode တွဲလျက်ပါပါက (ဥပမာ S01E05)
+    s_ep_match = re.search(r'\bs(\d{1,2})\s*e(\d{1,4})\b', full_text, re.IGNORECASE)
+    if s_ep_match:
+        season_number = str(int(s_ep_match.group(1)))
+        ep_number = str(int(s_ep_match.group(2)))
+    else:
+        # Episode သီးသန့်ပါပါက (ဥပမာ Ep 107, Episode 5, E02, သို့မဟုတ် စာကြောင်းအဆုံးရှိ ဂဏန်း)
+        ep_match = re.search(r'\b(?:ep|episode|e)?\s*[:._-]?\s*(\d{1,4})\b', full_text, re.IGNORECASE)
+        if ep_match:
+            ep_number = str(int(ep_match.group(1)))
+
+    # 3. Year/ခုနှစ် ပါမပါ ရှာမည် (ဥပမာ 2023, 2024 စသည့် Movie များအတွက်)
+    year_match = re.search(r'\b(19\d{2}|20\d{2})\b', name)
+    year_str = f"({year_match.group(1)})" if year_match else ""
+
+    # 4. မလိုလားအပ်သော Quality, Channel Name, Subtitle Tag များ ရှင်းထုတ်ခြင်း
     unwanted_patterns = [
-        r'\bmmsubtitles?\b', r'\bmmsubs?\b', r'\bmyanmar\s*sub\b', 
-        r'\bsubtitles?\b', r'\[mmsub\]', r'\(mmsub\)', r'\bsub\b',
-        r'\bcrawler\b', r'\bjoined\b', r'\bbot\b', r'\bchannel\b'
+        r'\d*mmsubtitles?\b', r'\d*mmsubs?\b', r'\bmyanmar\s*sub\b', 
+        r'\bsubtitles?\b', r'\[mmsub\]', r'\(mmsub\)', r'\b\d*sub\b',
+        r'\bcrawler\b', r'\bjoined\b', r'\bbot\b', r'\bchannel\b', r'\btelegram\b',
+        r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b4k\b', r'\bhd\b', r'\bweb-dl\b',
+        r'\bbluray\b', r'\bhdrip\b', r'\bx264\b', r'\bx265\b', r'\baac\b', r'\besub\b'
     ]
+    
     for pattern in unwanted_patterns:
         name = re.sub(pattern, '', name, flags=re.IGNORECASE)
 
-    # 4. Caption ထဲတွင် Episode ဂဏန်း ပါမပါ စစ်ဆေးခြင်း
-    ep_number = ""
-    if caption_text:
-        ep_match = re.search(r'\b(?:ep|episode|e)?\s*[:._-]?\s*(\d{1,4})\b', caption_text, re.IGNORECASE)
-        if ep_match:
-            ep_number = ep_match.group(1)
-
-    # File Name ကိုယ်တိုင်ထဲတွင်လည်း Episode ပါမပါ ရှာခြင်း
-    if not ep_number:
-        ep_match_name = re.search(r'\b(?:ep|episode|e)\s*[:._-]?\s*(\d{1,4})\b', name, re.IGNORECASE)
-        if ep_match_name:
-            ep_number = ep_match_name.group(1)
-
-    # 5. File Name ထဲမှ Ep / Episode စာသားများနှင့် သီးသန့် ဂဏန်းများကို ခဏရှင်းထုတ်၍ Clean လုပ်ခြင်း
+    # Episode / Season / Year ဂဏန်းများကို နာမည်ထဲမှ ရှင်းထုတ်ခြင်း
+    name = re.sub(r'\bs\d{1,2}\s*e\d{1,4}\b', '', name, flags=re.IGNORECASE)
     name = re.sub(r'\b(?:ep|episode|e)?\s*[:._-]?\s*\d{1,4}\b', '', name, flags=re.IGNORECASE)
-    
-    # Special Characters များ ရှင်းထုတ်ခြင်း
+    if year_match:
+        name = re.sub(r'\b(19\d{2}|20\d{2})\b', '', name)
+
+    # Special Characters နှင့် ပိုနေသော Space များကို ရှင်းထုတ်ခြင်း
     name = re.sub(r'[\\/*?:"<>|\[\]()]', ' ', name)
-    name = re.sub(r'[-_]+', ' ', name)
+    name = re.sub(r'[\._-]+', ' ', name)
     name = re.sub(r'\s+', ' ', name).strip()
 
-    # 6. စာလုံးတိုင်း၏ ရှေ့စာလုံးကို အကြီးပြောင်းခြင်း (Title Case)
+    # Title Case ပြုလုပ်ခြင်း (ဥပမာ- avatar -> Avatar)
     name = name.title()
 
-    # 7. Series Name + Episode Number ကို စနစ်တကျ ပြန်လည် ပေါင်းစပ်ခြင်း
-    if ep_number:
-        if name:
-            final_name = f"{name} Ep {ep_number}"
-        else:
-            final_name = f"Episode {ep_number}"
+    # ဖိုင်နာမည် လုံးဝမကျန်ပါက Default ထည့်ပေးခြင်း
+    if not name:
+        name = "Video"
+
+    # 5. Output Format ပြန်လည်ပေါင်းစပ်ခြင်း
+    if season_number and ep_number:
+        final_name = f"{name} S{season_number} Ep {ep_number}"
+    elif ep_number:
+        final_name = f"{name} Ep {ep_number}"
+    elif year_str:
+        final_name = f"{name} {year_str}"
     else:
-        final_name = name if name else "Video"
+        final_name = name
 
     return f"{final_name}{ext}"
 
@@ -137,12 +153,12 @@ async def video_handler(event):
         chat_id = event.chat_id
         message_id = event.message.id
         
-        # ဖိုင်နာမည် ရယူခြင်း
+        # ဖိုင်နာမည် သန့်ရှင်း၍ ရယူခြင်း
         raw_file_name = extract_file_name(event.message)
         # URL Safe ဖြစ်စေရန် Quote ပြုလုပ်ခြင်း
         safe_file_name = quote(raw_file_name)
         
-        # Cloud Domain ဖြင့် Link ထုတ်ပေးခြင်း (ဖိုင်နာမည် ပါဝင်သည်)
+        # Cloud Domain ဖြင့် Link ထုတ်ပေးခြင်း
         stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}/{safe_file_name}"
         
         response_text = (
@@ -201,7 +217,6 @@ async def tg_file_streamer(client, file, offset, limit):
 async def root():
     return {"status": "ok", "message": "Telegram Streaming Server is running!"}
 
-# path variable သို့ ပြောင်းလဲထားပါသည် (:path)
 @app.get("/stream/{chat_id}/{message_id}/{file_name:path}")
 async def stream_video(chat_id: int, message_id: int, file_name: str, request: Request):
     try:
