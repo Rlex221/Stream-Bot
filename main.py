@@ -30,7 +30,7 @@ def myanmar_to_english_digits(text: str) -> str:
     return text.translate(trans_table)
 
 def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
-    """Movie/Series ဖိုင်များအတွက် Crawler, Joined အစရှိသော မလိုလားအပ်သည့်စာလုံးများရှင်းထုတ်ပြီး Title သန့်ထုတ်ပေးသည့် Function"""
+    """Movie သို့မဟုတ် Series ဖိုင်များကို Clean လုပ်ပြီး "King Avatar Ep 01.mp4" Format အတိအကျ ထုတ်ပေးသည့် Function"""
     if not raw_name:
         raw_name = ""
 
@@ -45,11 +45,10 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
         if len(parts[1]) <= 4:
             raw_name, ext = parts[0], f".{parts[1]}"
 
-    # Caption ထဲမှ ပထမဆုံး စာကြောင်းကိုပါ ပေါင်းစပ်စစ်ဆေးမည်
+    # Caption ထဲမှ ပထမဆုံး စာကြောင်းကိုယူမည်
     caption_first_line = caption_text.split('\n')[0] if caption_text else ""
-    full_text = f"{raw_name} {caption_first_line}"
-
-    # 2. မလိုလားအပ်သော Junk / Quality / Crawler / Subtitle စာလုံးများကို ပထမဆုံး အစွမ်းကုန် ရှင်းထုတ်မည်
+    
+    # 2. Crawler, Joined နှင့် မလိုလားအပ်သော Junk စာလုံးများကို သန့်ရှင်းမည်
     unwanted_patterns = [
         r'\bcrawler\b', r'\bjoined\b', r'\bjoin\b', r'\bchannel\b', r'\btelegram\b',
         r'\bmyanmar\s*sub(?:titles?)?\b', r'\bmmsub(?:titles?)?\b', r'\bsubtitles?\b', r'\bsub\b',
@@ -59,32 +58,22 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
         r'http\S+', r'www\.\S+', r'@\w+'
     ]
     
-    clean_text = full_text
+    clean_text = f"{raw_name} {caption_first_line}"
     for pattern in unwanted_patterns:
         clean_text = re.sub(pattern, ' ', clean_text, flags=re.IGNORECASE)
 
-    # 3. Season နှင့် Episode ဂဏန်းများကို ရှာဖွေမည်
+    # 3. Episode ဂဏန်းကို ရှာဖွေခြင်း (Ep 1, Ep01, Episode 1, E01 သို့မဟုတ် စာသားအဆုံးရှိ ဂဏန်း)
     ep_number = ""
-    season_number = ""
+    ep_match = re.search(r'\b(?:ep|episode|e)?\s*[:._-]?\s*(\d{1,4})\b', clean_text, re.IGNORECASE)
+    if ep_match:
+        ep_number = str(int(ep_match.group(1))).zfill(2) # 01, 02 အဖြစ် ပြောင်းမည်
 
-    # S01E02 သို့မဟုတ် S1E2 တွေ့ပါက
-    s_ep_match = re.search(r'\bs(\d{1,2})\s*e(\d{1,4})\b', clean_text, re.IGNORECASE)
-    if s_ep_match:
-        season_number = str(int(s_ep_match.group(1))).zfill(2)
-        ep_number = str(int(s_ep_match.group(2))).zfill(2)
-    else:
-        # Ep 01, Episode 1, E01 သို့မဟုတ် စာသားထဲရှိ Episode ဂဏန်းကို ရှာမည်
-        ep_match = re.search(r'\b(?:ep|episode|e)?\s*[:._-]?\s*(\d{1,4})\b', clean_text, re.IGNORECASE)
-        if ep_match:
-            ep_number = str(int(ep_match.group(1))).zfill(2)
-
-    # 4. Year/ခုနှစ် ပါမပါ ရှာမည် (ဥပမာ 2023, 2024 စသည့် Movie များအတွက်)
+    # 4. Movie ခုနှစ် ရှာဖွေခြင်း (ဥပမာ 2024)
     year_match = re.search(r'\b(19\d{2}|20\d{2})\b', clean_text)
     year_str = f"({year_match.group(1)})" if year_match else ""
 
-    # 5. Title / Movie Name သန့်ထုတ်ခြင်း (ဂဏန်းများနှင့် Tag များကို ဖယ်ထုတ်မည်)
+    # 5. Title / နာမည် သန့်ထုတ်ခြင်း
     title_name = clean_text
-    title_name = re.sub(r'\bs\d{1,2}\s*e\d{1,4}\b', ' ', title_name, flags=re.IGNORECASE)
     title_name = re.sub(r'\b(?:ep|episode|e)?\s*[:._-]?\s*\d{1,4}\b', ' ', title_name, flags=re.IGNORECASE)
     if year_match:
         title_name = re.sub(r'\b(19\d{2}|20\d{2})\b', ' ', title_name)
@@ -94,17 +83,14 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
     title_name = re.sub(r'[\._-]+', ' ', title_name)
     title_name = re.sub(r'\s+', ' ', title_name).strip()
 
-    # Title Case ပြုလုပ်ခြင်း (ဥပမာ- king avatar -> King Avatar)
+    # Title Case ပြုလုပ်ခြင်း (king avatar -> King Avatar)
     title_name = title_name.title()
 
-    # နာမည် လုံးဝမကျန်ခဲ့ပါက Caption သို့မဟုတ် Default အမည် သုံးမည်
     if not title_name or title_name.lower() in ["video", "file"]:
         title_name = "Movie"
 
-    # 6. Final Output Format ပြန်လည်ပေါင်းစပ်ခြင်း
-    if season_number and ep_number:
-        final_name = f"{title_name} S{season_number} Ep {ep_number}"
-    elif ep_number:
+    # 6. Format အတိုင်း ပြန်လည် ပေါင်းစပ်ခြင်း
+    if ep_number:
         final_name = f"{title_name} Ep {ep_number}"
     elif year_str:
         final_name = f"{title_name} {year_str}"
@@ -146,10 +132,18 @@ async def start_handler(event):
 
 @bot.on(events.NewMessage(incoming=True))
 async def video_handler(event):
+    # Command သို့မဟုတ် Text အလွတ်ဖြစ်ပါက ကျော်မည်
     if event.message.text and event.message.text.startswith('/start'):
         return
 
-    if event.message.video or (event.message.document and event.message.document.mime_type and event.message.document.mime_type.startswith('video/')):
+    # Video သို့မဟုတ် Video Document ဟုတ်မဟုတ် စစ်ဆေးမည် (၂ ခါ မပို့စေရန်)
+    is_video = False
+    if event.message.video:
+        is_video = True
+    elif event.message.document and event.message.document.mime_type and event.message.document.mime_type.startswith('video/'):
+        is_video = True
+
+    if is_video:
         chat_id = event.chat_id
         message_id = event.message.id
         
