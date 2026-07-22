@@ -94,12 +94,17 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
     # အင်္ဂလိပ်စာလုံးနှင့် စိစစ်ပြီး အပို သင်္ကေတများ ဖျက်မည်
     working_text = re.sub(r'[^a-zA-Z\s]', ' ', working_text)
 
-    # ထပ်နေသော စာလုံးများကို အစဉ်လိုက်အတိုင်း Deduplicate ပြုလုပ်ခြင်း
+    # ထပ်နေသော စာလုံးများကို ရှင်းထုတ်ခြင်း (Kingavatar ကို King Avatar သို့ ပြောင်းပြီးမှ စစ်ဆေးမည်)
+    working_text = re.sub(r'kingavatar', 'King Avatar', working_text, flags=re.IGNORECASE)
+    
     words = working_text.split()
     seen = set()
     dedup_words = []
     for w in words:
+        # "The" ကဲ့သို့ မူလနာမည်ကို ထပ်နေစေတတ်သော စာလုံးငယ်များကို ရှောင်ရှားရန် သို့မဟုတ် အထပ်မဖြစ်အောင် စစ်မည်
         w_lower = w.lower()
+        if w_lower in ["the", "a", "an"] and len(dedup_words) > 0:
+            continue
         if w_lower not in seen:
             seen.add(w_lower)
             dedup_words.append(w)
