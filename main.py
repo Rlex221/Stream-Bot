@@ -16,13 +16,9 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 # သင့် Render / Railway ရဲ့ Domain URL ကို ဒီနေရာမှာ ထည့်ပါ (အနောက်မှာ / မပါရပါ)
 SERVER_URL = os.environ.get("SERVER_URL", "https://your-app-name.onrender.com")
 
-# Telethon Telegram Client (Session Name ကို တူညီမှုမရှိစေရန် ပြင်ထားသည်)
-bot = TelegramClient('telethon_stream_bot_session', API_ID, API_HASH)
+# Telethon Telegram Client
+bot = TelegramClient('telethon_stream_bot', API_ID, API_HASH)
 app = FastAPI(title="Telegram Video Streamer")
-
-# Double reply ကို ကာကွယ်ရန် Memory Cache & Lock စနစ်
-processed_messages = set()
-process_lock = asyncio.Lock()
 
 
 # --- [ HELPER FUNCTIONS ] ---
@@ -134,6 +130,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
 
     return f"{final_name}{ext}"
 
+
 def extract_file_name(message) -> str:
     """Telegram Message မှ File Name နှင့် Caption ကို တွဲဖက်ထုတ်ယူပေးသည့် Function"""
     file_name = None
@@ -166,23 +163,9 @@ async def start_handler(event):
 
 @bot.on(events.NewMessage(incoming=True))
 async def video_handler(event):
-    # /start command ကို ကျော်မည်
     if event.message.text and event.message.text.startswith('/start'):
         return
 
-    message_id = event.message.id
-
-    # 🛑 Async Lock သုံးပြီး တပြိုင်နက်တည်းဝင်လာသော Event များကို စစ်ဆေးခြင်း
-    async with process_lock:
-        if message_id in processed_messages:
-            return  # ထပ်နေပါက လုပ်ဆောင်မှု ရပ်တန့်မည်
-        
-        processed_messages.add(message_id)
-        if len(processed_messages) > 1000:
-            processed_messages.clear()
-            processed_messages.add(message_id)
-
-    # Video သို့မဟုတ် Document (Video type) ဖြစ်မဖြစ် စစ်ဆေးခြင်း
     media = event.message.video
     if not media and event.message.document:
         if event.message.document.mime_type and event.message.document.mime_type.startswith('video/'):
@@ -190,6 +173,7 @@ async def video_handler(event):
 
     if media:
         chat_id = event.chat_id
+        message_id = event.message.id
         
         raw_file_name = extract_file_name(event.message)
         safe_file_name = quote(raw_file_name)
@@ -198,6 +182,7 @@ async def video_handler(event):
         
         response_text = (
             f"🔗 **သင့်ဗီဒီယိုအတွက် Stream Link ရပါပြီ:**\n\n"
+            f"📁 **File Name:** `{raw_file_name}`\n\n"
             f"`{stream_link}`\n\n"
             f"💡 ဒီ link ကို VLC, MX Player သို့မဟုတ် Browser ထဲမှာ ထည့်သွင်းကြည့်ရှုနိုင်ပါတယ်။"
         )
@@ -336,6 +321,6 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        bot.loop.run_until_complete(main())
+        asyncio.run(main())
     except KeyboardInterrupt:
         print("\n👋 Bot ရပ်နားလိုက်ပါပြီ။")
