@@ -182,7 +182,6 @@ async def video_handler(event):
         
         response_text = (
             f"🔗 **သင့်ဗီဒီယိုအတွက် Stream Link ရပါပြီ:**\n\n"
-            f"📁 **File Name:** `{raw_file_name}`\n\n"
             f"`{stream_link}`\n\n"
             f"💡 ဒီ link ကို VLC, MX Player သို့မဟုတ် Browser ထဲမှာ ထည့်သွင်းကြည့်ရှုနိုင်ပါတယ်။"
         )
