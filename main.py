@@ -16,12 +16,13 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 # သင့် Render / Railway ရဲ့ Domain URL ကို ဒီနေရာမှာ ထည့်ပါ (အနောက်မှာ / မပါရပါ)
 SERVER_URL = os.environ.get("SERVER_URL", "https://your-app-name.onrender.com")
 
-# Telethon Telegram Client (Global အနေဖြင့် ကြေညာထားမည်)
-bot = TelegramClient('telethon_stream_bot', API_ID, API_HASH)
+# Telethon Telegram Client (Session Name ကို တူညီမှုမရှိစေရန် ပြင်ထားသည်)
+bot = TelegramClient('telethon_stream_bot_session', API_ID, API_HASH)
 app = FastAPI(title="Telegram Video Streamer")
 
-# Double reply ကို ကာကွယ်ရန် Process လုပ်ပြီးသား Message ID များကို မှတ်ထားမည့် နေရာ
+# Double reply ကို ကာကွယ်ရန် Memory Cache & Lock စနစ်
 processed_messages = set()
+process_lock = asyncio.Lock()
 
 
 # --- [ HELPER FUNCTIONS ] ---
@@ -169,17 +170,17 @@ async def video_handler(event):
     if event.message.text and event.message.text.startswith('/start'):
         return
 
-    # 🛑 ဤနေရာသည် Double Reply ကို တားဆီးပေးမည့် အပိုင်းဖြစ်ပါသည်
     message_id = event.message.id
-    if message_id in processed_messages:
-        return  # အကယ်၍ မှတ်ထားပြီးသား Message ဖြစ်နေရင် အလုပ်မလုပ်ဘဲ ကျော်သွားပါမည်
-    
-    # Message ID ကို မှတ်သားထားမည်
-    processed_messages.add(message_id)
-    # Memory ပြည့်မသွားစေရန် Cache ID ၅၀၀ ကျော်လျှင် ရှင်းလင်းပေးမည်
-    if len(processed_messages) > 500:
-        processed_messages.clear()
+
+    # 🛑 Async Lock သုံးပြီး တပြိုင်နက်တည်းဝင်လာသော Event များကို စစ်ဆေးခြင်း
+    async with process_lock:
+        if message_id in processed_messages:
+            return  # ထပ်နေပါက လုပ်ဆောင်မှု ရပ်တန့်မည်
+        
         processed_messages.add(message_id)
+        if len(processed_messages) > 1000:
+            processed_messages.clear()
+            processed_messages.add(message_id)
 
     # Video သို့မဟုတ် Document (Video type) ဖြစ်မဖြစ် စစ်ဆေးခြင်း
     media = event.message.video
@@ -335,8 +336,6 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        # 🛑 ဤနေရာတွင် asyncio.run(main()) အစား bot.loop ကိုအသုံးပြုခြင်းဖြင့် 
-        # Uvicorn နှင့် Telethon Event Loop ငြိခြင်းကို ကာကွယ်ပေးပါသည် (Script B ၏ အားသာချက်)
         bot.loop.run_until_complete(main())
     except KeyboardInterrupt:
         print("\n👋 Bot ရပ်နားလိုက်ပါပြီ။")
