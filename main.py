@@ -5,6 +5,7 @@ from urllib.parse import quote, unquote
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse
 from telethon import TelegramClient, events
+from telethon.errors import FloodWaitError
 import uvicorn
 
 # --- [ CONFIGURATIONS ] ---
@@ -15,8 +16,8 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 # သင့် Render / Railway ရဲ့ Domain URL ကို ဒီနေရာမှာ ထည့်ပါ (အနောက်မှာ / မပါရပါ)
 SERVER_URL = os.environ.get("SERVER_URL", "https://your-app-name.onrender.com")
 
-# Telethon Telegram Client
-bot = TelegramClient('telethon_stream_bot', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+# Telethon Telegram Client (ဒီနေရာမှာ .start() တန်းမခေါ်ဘဲ ခွဲထုတ်ထားပါသည်)
+bot = TelegramClient('telethon_stream_bot', API_ID, API_HASH)
 app = FastAPI(title="Telegram Video Streamer")
 
 
@@ -89,7 +90,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
     clean_text = re.sub(r'[\u1000-\u109F]', ' ', clean_text)
 
     # 4. Title Name သန့်ထုတ်ခြင်း
-    # Episode/Season/Year စာသားများကို Title ထဲမှ ဖယ်ထုတ်မည် (ခွဲထုတ်ပြီးသားမို့)
+    # Episode/Season/Year စာသားများကို Title ထဲမှ ဖယ်ထုတ်မည်
     clean_text = re.sub(r'\bs\d{1,2}\s*e\d{1,4}\b', ' ', clean_text, flags=re.IGNORECASE)
     clean_text = re.sub(r'(?:ep|episode|e)\s*[:._-]?\s*\d{1,4}', ' ', clean_text, flags=re.IGNORECASE)
     if year_match:
@@ -98,7 +99,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
     # Special Characters များကို ရှင်းထုတ်မည်
     clean_text = re.sub(r'[^a-zA-Z\s]', ' ', clean_text)
 
-    # ထပ်နေသော Title စာလုံးများကို ရှင်းထုတ်မည် (ဥပမာ "The Bay The Bay" -> "The Bay")
+    # ထပ်နေသော Title စာလုံးများကို ရှင်းထုတ်မည်
     words = clean_text.split()
     seen = set()
     dedup_words = []
@@ -161,11 +162,9 @@ async def start_handler(event):
 
 @bot.on(events.NewMessage(incoming=True))
 async def video_handler(event):
-    # Command စာသားများဖြစ်ပါက ကျော်မည်
     if event.message.text and event.message.text.startswith('/start'):
         return
 
-    # Video/Document ကို သေချာ စစ်ဆေး၍ ၁ ခါပဲ Response ပို့မည်
     media = event.message.video
     if not media and event.message.document:
         if event.message.document.mime_type and event.message.document.mime_type.startswith('video/'):
@@ -175,12 +174,9 @@ async def video_handler(event):
         chat_id = event.chat_id
         message_id = event.message.id
         
-        # ဖိုင်နာမည် သန့်ရှင်း၍ ရယူခြင်း
         raw_file_name = extract_file_name(event.message)
-        # URL Safe ဖြစ်စေရန် Quote ပြုလုပ်ခြင်း
         safe_file_name = quote(raw_file_name)
         
-        # Cloud Domain ဖြင့် Link ထုတ်ပေးခြင်း
         stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}/{safe_file_name}"
         
         response_text = (
@@ -300,6 +296,15 @@ async def stream_video(chat_id: int, message_id: int, file_name: str, request: R
 # --- [ MAIN RUNNER SECTION ] ---
 
 async def main():
+    # FloodWaitError ကို စောင့်ဆိုင်းပေးမည့် အပိုင်း
+    try:
+        await bot.start(bot_token=BOT_TOKEN)
+        print("✅ Telegram Bot Successfully Started!")
+    except FloodWaitError as e:
+        print(f"⚠️ Telegram Rate Limit! Waiting for {e.seconds} seconds...")
+        await asyncio.sleep(e.seconds)
+        await bot.start(bot_token=BOT_TOKEN)
+
     port = int(os.environ.get("PORT", 8080))
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
@@ -316,6 +321,6 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        bot.loop.run_until_complete(main())
+        asyncio.run(main())
     except KeyboardInterrupt:
         print("\n👋 Bot ရပ်နားလိုက်ပါပြီ။")
