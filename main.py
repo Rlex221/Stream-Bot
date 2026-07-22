@@ -31,14 +31,14 @@ def myanmar_to_english_digits(text: str) -> str:
     return text.translate(trans_table)
 
 def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
-    """ဘယ် Channel / Uploader ဆီကလာလာ Title + Ep သန့်သန့်ပဲ ထွက်ပေးမည့် Smart Function"""
+    """ဘယ် Movie/Series ဖြစ်ဖြစ် Hashtag များနှင့် Quality Tags များကို စိစစ်ပြီး Title သန့်ပေးမည့် Function"""
     if not raw_name:
         raw_name = ""
 
     raw_name = myanmar_to_english_digits(raw_name)
     caption_text = myanmar_to_english_digits(caption_text)
 
-    # 1. Extension မူရင်းအတိုင်း ခွဲထုတ်မည် (.mp4, .mkv စသည်)
+    # 1. Extension မူရင်းအတိုင်း ခွဲထုတ်မည် (.mp4, .mkv, .avi စသည်)
     ext = ".mp4"
     if "." in raw_name:
         parts = raw_name.rsplit(".", 1)
@@ -47,7 +47,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
 
     full_text = f"{raw_name} {caption_text}"
 
-    # 2. Season နှင့် Episode ဂဏန်းများ ရှာထုတ်မည် (မြန်မာ/အင်္ဂလိပ်)
+    # 2. Season နှင့် Episode ဂဏန်းများ ရှာထုတ်မည်
     ep_number = ""
     season_number = ""
 
@@ -67,17 +67,23 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
     # 3. TITLE ကို ဦးစားပေး စနစ်ဖြင့် ရှာဖွေမည်
     clean_title = ""
 
-    # A. Hashtag ပါဝင်ပါက Hashtag ကို Title အဖြစ် အဓိက ယူမည် (ဥပမာ #KingAvatar -> King Avatar)
-    hashtags = re.findall(r'#(\w+)', full_text)
-    if hashtags:
-        # CamelCase သို့မဟုတ် ကပ်နေသော စာလုံးများကို ခွဲမည် (ဥပမာ KingAvatar -> King Avatar)
-        tag = hashtags[0]
-        tag_spaced = re.sub(r'([a-z])([A-Z])', r'\1 \2', tag)
-        clean_title = tag_spaced.replace("_", " ").strip().title()
+    # မလိုအပ်သော Tag / Quality စာလုံးများ
+    ignore_tags = [
+        '1080p', '720p', '480p', '360p', '4k', 'hd', 'fhd', 'bluray',
+        'webrip', 'webdl', 'mmsub', 'sub', 'engsub', 'esub', 'raw'
+    ]
 
-    # B. Hashtag မပါပါက စာသားထဲမှ အင်္ဂလိပ် Title ကို ရှာထုတ်မည်
+    # A. Hashtags ထဲမှ Quality မဟုတ်သော Title Hashtag ကို ရှာမည် (ဥပမာ #BlossomsOfPower)
+    hashtags = re.findall(r'#(\w+)', full_text)
+    for tag in hashtags:
+        if tag.lower() not in ignore_tags:
+            # CamelCase စာလုံးများကို ခွဲမည် (BlossomsOfPower -> Blossoms Of Power)
+            tag_spaced = re.sub(r'([a-z])([A-Z])', r'\1 \2', tag)
+            clean_title = tag_spaced.replace("_", " ").strip().title()
+            break
+
+    # B. Hashtag မပါပါက သို့မဟုတ် မိပါက အခြား အင်္ဂလိပ် Title ကို ရှာထုတ်မည်
     if not clean_title:
-        # မလိုလားအပ်သော Tags များနှင့် Translation, Channel, Ads များ ဖျက်မည်
         unwanted_patterns = [
             r'translation\s*-\s*\w+', r'uploader\s*-\s*\w+', r'subbed\s*by\s*\w+',
             r'\bcrawler\b', r'\bjoined\b', r'\bjoin\b', r'\bkara\b', r'\bsu\b', r'\bmw\b',
@@ -103,7 +109,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
             w_lower = w.lower()
             if w_lower in ["the", "a", "an"] and len(dedup_words) > 0:
                 continue
-            if w_lower not in seen:
+            if w_lower not in seen and w_lower not in ignore_tags:
                 seen.add(w_lower)
                 dedup_words.append(w)
                 
@@ -112,7 +118,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
     if not clean_title or clean_title.lower() in ["video", "file", "movie"]:
         clean_title = "Movie"
 
-    # 4. Output Format ပြန်လည် စည်းစနစ်ကျအောင် ပေါင်းစပ်ခြင်း
+    # 4. Output Format ကို စနစ်တကျ ပြန်လည် ပေါင်းစပ်ခြင်း
     if season_number and ep_number:
         final_name = f"{clean_title} S{season_number} Ep {ep_number}"
     elif ep_number:
