@@ -180,9 +180,9 @@ async def video_handler(event):
         
         stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}/{safe_file_name}"
         
+        # File Name စာသားဖြုတ်ထားပြီး Link တစ်ခုတည်းသာ ထွက်အောင် ပြုလုပ်ထားပါသည်
         response_text = (
             f"🔗 **သင့်ဗီဒီယိုအတွက် Stream Link ရပါပြီ:**\n\n"
-            f"📁 **File Name:** `{raw_file_name}`\n\n"
             f"`{stream_link}`\n\n"
             f"💡 ဒီ link ကို VLC, MX Player သို့မဟုတ် Browser ထဲမှာ ထည့်သွင်းကြည့်ရှုနိုင်ပါတယ်။"
         )
