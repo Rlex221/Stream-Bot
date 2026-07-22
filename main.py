@@ -77,6 +77,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
     hashtags = re.findall(r'#(\w+)', full_text)
     for tag in hashtags:
         if tag.lower() not in ignore_tags:
+            # CamelCase စာလုံးများကို ခွဲမည် (BlossomsOfPower -> Blossoms Of Power)
             tag_spaced = re.sub(r'([a-z])([A-Z])', r'\1 \2', tag)
             clean_title = tag_spaced.replace("_", " ").strip().title()
             break
@@ -160,27 +161,34 @@ def extract_file_name(message) -> str:
 async def start_handler(event):
     await event.reply("👋 မင်္ဂလာပါ! ကျွန်တော့်ဆီကို ဘယ်ဗီဒီယိုဖိုင်မဆို ပို့ပေးပါ။ တိုက်ရိုက်ကြည့်ရှုနိုင်မယ့် Stream Link ထုတ်ပေးပါမယ်။")
 
-# 2 ကြိမ် Reply ပြန်ခြင်းမှ ကာကွယ်ရန် Event Listener ပြင်ဆင်ထားပါသည်
-@bot.on(events.NewMessage(incoming=True, func=lambda e: bool(e.video or (e.document and e.document.mime_type and e.document.mime_type.startswith('video/')))))
+@bot.on(events.NewMessage(incoming=True))
 async def video_handler(event):
+    # /start command ကို ကျော်မည်
     if event.message.text and event.message.text.startswith('/start'):
         return
 
-    chat_id = event.chat_id
-    message_id = event.message.id
-    
-    raw_file_name = extract_file_name(event.message)
-    safe_file_name = quote(raw_file_name)
-    
-    stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}/{safe_file_name}"
-    
-    # File Name စာသားကို ဖြုတ်ထုတ်ထားပြီး Link သီးသန့် ပြန်ပေးမည့် Response
-    response_text = (
-        f"🔗 **သင့်ဗီဒီယိုအတွက် Stream Link ရပါပြီ:**\n\n"
-        f"`{stream_link}`\n\n"
-        f"💡 ဒီ link ကို VLC, MX Player သို့မဟုတ် Browser ထဲမှာ ထည့်သွင်းကြည့်ရှုနိုင်ပါတယ်။"
-    )
-    await event.reply(response_text)
+    # Video သို့မဟုတ် Document (Video type) ဖြစ်မဖြစ် စစ်ဆေးခြင်း
+    media = event.message.video
+    if not media and event.message.document:
+        if event.message.document.mime_type and event.message.document.mime_type.startswith('video/'):
+            media = event.message.document
+
+    if media:
+        chat_id = event.chat_id
+        message_id = event.message.id
+        
+        raw_file_name = extract_file_name(event.message)
+        safe_file_name = quote(raw_file_name)
+        
+        stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}/{safe_file_name}"
+        
+        # File Name လိုင်းအား ဖျက်ထားပြီး တစ်ကြိမ်သာ reply ပြန်ပါမည်
+        response_text = (
+            f"🔗 **သင့်ဗီဒီယိုအတွက် Stream Link ရပါပြီ:**\n\n"
+            f"`{stream_link}`\n\n"
+            f"💡 ဒီ link ကို VLC, MX Player သို့မဟုတ် Browser ထဲမှာ ထည့်သွင်းကြည့်ရှုနိုင်ပါတယ်။"
+        )
+        await event.reply(response_text)
 
 
 # --- [ STREAM SERVER SECTION ] ---
