@@ -30,7 +30,7 @@ def myanmar_to_english_digits(text: str) -> str:
     return text.translate(trans_table)
 
 def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
-    """Movie/Series ဖိုင်များအတွက် Crawler, Joined, မြန်မာစာ စာလုံးများ ရှင်းထုတ်ပြီး King Avatar Ep 01.mp4 ပုံစံထုတ်ပေးသည့် Function"""
+    """Movie/Series ဖိုင်များအတွက် အပိုဂဏန်းများ၊ Crawler, Junk များရှင်းထုတ်ပြီး Title သန့်သန့် ထုတ်ပေးသည့် Function"""
     if not raw_name:
         raw_name = ""
 
@@ -46,30 +46,30 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
             raw_name, ext = parts[0], f".{parts[1]}"
 
     caption_first_line = caption_text.split('\n')[0] if caption_text else ""
-    clean_text = f"{raw_name} {caption_first_line}"
+    full_text = f"{raw_name} {caption_first_line}"
 
-    # 2. Season/Episode ဂဏန်းကို အရင်ဆုံး ရှာဖွေမည်
+    # 2. Episode / Season ဂဏန်းကို သီးသန့် ရှာထုတ်မည်
     ep_number = ""
     season_number = ""
 
-    s_ep_match = re.search(r'\bs(\d{1,2})\s*e(\d{1,4})\b', clean_text, re.IGNORECASE)
+    # Season & Episode (S01E02)
+    s_ep_match = re.search(r'\bs(\d{1,2})\s*e(\d{1,4})\b', full_text, re.IGNORECASE)
     if s_ep_match:
         season_number = str(int(s_ep_match.group(1))).zfill(2)
         ep_number = str(int(s_ep_match.group(2))).zfill(2)
     else:
-        # Ep, Episode, E သို့မဟုတ် "အပိုင်း" အနောက်မှ ဂဏန်းများကို ရှာမည်
-        ep_match = re.search(r'(?:ep|episode|e|အပိုင်း)\s*[:._-]?\s*(\d{1,4})', clean_text, re.IGNORECASE)
+        # Ep, Episode, E သို့မဟုတ် "အပိုင်း" အနောက်မှ ဂဏန်း သို့မဟုတ် စာသားအဆုံးနားရှိ Episode ဂဏန်း
+        ep_match = re.search(r'(?:ep|episode|e|အပိုင်း)?\s*[:._-]?\s*(\d{1,3})\s*$', full_text, re.IGNORECASE)
         if not ep_match:
-            ep_match = re.search(r'\b(\d{1,3})\b', clean_text)
+            ep_match = re.search(r'(?:ep|episode|e|အပိုင်း)\s*[:._-]?\s*(\d{1,3})', full_text, re.IGNORECASE)
         if ep_match:
             ep_number = str(int(ep_match.group(1))).zfill(2)
 
-    # 3. Year/ခုနှစ် ပါမပါ ရှာမည်
-    year_match = re.search(r'\b(19\d{2}|20\d{2})\b', clean_text)
+    # Movie Year (ဥပမာ 2024)
+    year_match = re.search(r'\b(19\d{2}|20\d{2})\b', full_text)
     year_str = f"({year_match.group(1)})" if year_match else ""
 
-    # 4. မလိုလားအပ်သော စာလုံးများနှင့် မြန်မာစာလုံးများ ဖယ်ထုတ်ခြင်း
-    # Crawler, Joined, Subtitle, အပိုင်း စသည့် စာလုံးများအားလုံးရှင်းထုတ်မည်
+    # 3. မလိုလားအပ်သော စာလုံးများနှင့် Junk စာလုံးများကို ဖယ်ထုတ်မည်
     unwanted_patterns = [
         r'crawler', r'joined', r'join', r'channel', r'telegram',
         r'myanmar\s*sub(?:titles?)?', r'mmsub(?:titles?)?', r'subtitles?', r'sub',
@@ -77,32 +77,36 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
         r'1080p?', r'720p?', r'480p?', r'4k', r'hd', r'web-dl',
         r'bluray', r'hdrip', r'x264', r'x265', r'aac', r'esub',
         r'http\S+', r'www\.\S+', r'@\w+',
-        r'အပိုင်း', r'စစ်နတ်ဘုရားရဲ့ဂုဏ်သရေ' # အပိုစာလုံးများ
+        r'အပိုင်း', r'စစ်နတ်ဘုရားရဲ့ဂုဏ်သရေ'
     ]
     
+    clean_text = full_text
     for pattern in unwanted_patterns:
         clean_text = re.sub(pattern, ' ', clean_text, flags=re.IGNORECASE)
 
-    # မြန်မာစာလုံးများပါပါက Title သန့်သွားစေရန် ဖယ်ထုတ်မည် (အင်္ဂလိပ် Title သီးသန့်ရရန်)
-    title_name = re.sub(r'[\u1000-\u109F]', ' ', clean_text)
+    # မြန်မာစာလုံးများကို ဖယ်ထုတ်ပြီး အင်္ဂလိပ် Title စာသားကိုပဲ ယူမည်
+    clean_text = re.sub(r'[\u1000-\u109F]', ' ', clean_text)
 
-    # Ep / Season / Year ဂဏန်းများကို Title ထဲမှ ဖယ်ထုတ်မည်
-    title_name = re.sub(r'\bs\d{1,2}\s*e\d{1,4}\b', ' ', title_name, flags=re.IGNORECASE)
-    title_name = re.sub(r'(?:ep|episode|e)\s*[:._-]?\s*\d{1,4}', ' ', title_name, flags=re.IGNORECASE)
+    # 4. Title Name သန့်ထုတ်ခြင်း (အပို ဂဏန်းများ ရှင်းထုတ်ခြင်း)
+    # Episode/Season/Year စကားလုံးများ ဖယ်ထုတ်မည်
+    clean_text = re.sub(r'\bs\d{1,2}\s*e\d{1,4}\b', ' ', clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'(?:ep|episode|e)\s*[:._-]?\s*\d{1,4}', ' ', clean_text, flags=re.IGNORECASE)
     if year_match:
-        title_name = re.sub(r'\b(19\d{2}|20\d{2})\b', ' ', title_name)
+        clean_text = re.sub(r'\b(19\d{2}|20\d{2})\b', ' ', clean_text)
+
+    # စာသားထဲရှိ သီးသန့်ဖြစ်နေသော ဂဏန်းအပိုများ (ဥပမာ 1, 02, 2 စသည်) ကို ရှင်းထုတ်မည်
+    clean_text = re.sub(r'\b\d{1,3}\b', ' ', clean_text)
 
     # Special Characters နှင့် ပိုနေသော Space များကို ရှင်းထုတ်ခြင်း
-    title_name = re.sub(r'[^a-zA-Z0-9\s]', ' ', title_name)
-    title_name = re.sub(r'\s+', ' ', title_name).strip()
+    clean_text = re.sub(r'[^a-zA-Z\s]', ' ', clean_text)
+    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
 
-    # Title Case ပြုလုပ်ခြင်း (king avatar -> King Avatar)
-    title_name = title_name.title()
+    title_name = clean_text.title()
 
     if not title_name or title_name.lower() in ["video", "file", "movie"]:
-        title_name = "King Avatar"  # Default အမည်
+        title_name = "Movie"
 
-    # 5. Final Output Format ပြန်လည်ပေါင်းစပ်ခြင်း
+    # 5. Final Output Format ပေါင်းစပ်ခြင်း
     if season_number and ep_number:
         final_name = f"{title_name} S{season_number} Ep {ep_number}"
     elif ep_number:
@@ -151,7 +155,7 @@ async def video_handler(event):
     if event.message.text and event.message.text.startswith('/start'):
         return
 
-    # Video တစ်ခုတည်းကိုသာ စစ်ဆေးမည် (Message ၂ ခါ ထွက်ခြင်းကို ကာကွယ်ရန်)
+    # Video/Document ကို သေချာ စစ်ဆေး၍ ၁ ခါပဲ Response ပို့မည်
     media = event.message.video
     if not media and event.message.document:
         if event.message.document.mime_type and event.message.document.mime_type.startswith('video/'):
