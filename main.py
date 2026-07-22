@@ -22,10 +22,21 @@ app = FastAPI(title="Telegram Video Streamer")
 
 # --- [ HELPER FUNCTIONS ] ---
 
+def myanmar_to_english_digits(text: str) -> str:
+    """မြန်မာဂဏန်းများကို အင်္ဂလိပ်ဂဏန်းသို့ ပြောင်းပေးသည့် Function"""
+    mm_digits = '၀၁၂၃၄၅၆၇၈၉'
+    en_digits = '0123456789'
+    trans_table = str.maketrans(mm_digits, en_digits)
+    return text.translate(trans_table)
+
 def clean_and_format_title(name: str, caption_text: str = "") -> str:
-    """mmsub ဖြုတ်ခြင်း၊ စာလုံးပိုများရှင်းခြင်း၊ စာလုံးရှေ့အကြီးပြောင်းခြင်း နှင့် EP နံပါတ်စနစ်တကျ ခွဲထုတ်ပေးသည့် Function"""
+    """mmsub ဖြုတ်ခြင်း၊ စာလုံးပိုများရှင်းခြင်း၊ မြန်မာဂဏန်းပြောင်းခြင်း နှင့် EP နံပါတ်စနစ်တကျ ခွဲထုတ်ပေးသည့် Function"""
     if not name:
         name = ""
+
+    # မြန်မာဂဏန်းများကို အင်္ဂလိပ်ဂဏန်းသို့ အရင်ပြောင်းမည် (VLC URL Error မတက်စေရန်)
+    name = myanmar_to_english_digits(name)
+    caption_text = myanmar_to_english_digits(caption_text)
 
     # 1. Extension ကို သီးသန့်ခွဲထုတ်ထားမည်
     ext = ".mp4"
@@ -49,7 +60,6 @@ def clean_and_format_title(name: str, caption_text: str = "") -> str:
     # 4. Caption ထဲတွင် Episode ဂဏန်း ပါမပါ စစ်ဆေးခြင်း
     ep_number = ""
     if caption_text:
-        # Ep 107, Episode 107, E107 သို့မဟုတ် စာကြောင်းအစ/အဆုံး၌ ဂဏန်းသီးသန့်ပါပါက ရှာမည်
         ep_match = re.search(r'\b(?:ep|episode|e)?\s*[:._-]?\s*(\d{1,4})\b', caption_text, re.IGNORECASE)
         if ep_match:
             ep_number = ep_match.group(1)
@@ -88,14 +98,12 @@ def extract_file_name(message) -> str:
     file_name = None
     caption = message.text or ""
 
-    # Document ဖြစ်ပါက attributes ထဲမှ file_name ကို ရှာမည်
     if message.document and message.document.attributes:
         for attr in message.document.attributes:
             if hasattr(attr, 'file_name') and attr.file_name:
                 file_name = attr.file_name
                 break
 
-    # Video file ဖြစ်ပြီး file_name မရှိသေးပါက
     if not file_name and message.video:
         if hasattr(message.video, 'attributes'):
             for attr in message.video.attributes:
@@ -103,17 +111,14 @@ def extract_file_name(message) -> str:
                     file_name = attr.file_name
                     break
 
-    # Caption သို့မဟုတ် Text ၏ ပထမစာကြောင်းကို ဖိုင်နာမည်အဖြစ် သုံးခြင်း
     if not file_name and caption:
         first_line = caption.split('\n')[0].strip()
         if first_line and len(first_line) < 100:
             file_name = first_line
 
-    # ဖိုင်နာမည် လုံးဝ မရှိပါက Default ပေးခြင်း
     if not file_name:
         file_name = "Video.mp4"
 
-    # Clean & Format ပြုလုပ်ခြင်း
     return clean_and_format_title(file_name, caption_text=caption)
 
 
@@ -196,10 +201,14 @@ async def tg_file_streamer(client, file, offset, limit):
 async def root():
     return {"status": "ok", "message": "Telegram Streaming Server is running!"}
 
-@app.get("/stream/{chat_id}/{message_id}/{file_name}")
+# path variable သို့ ပြောင်းလဲထားပါသည် (:path)
+@app.get("/stream/{chat_id}/{message_id}/{file_name:path}")
 async def stream_video(chat_id: int, message_id: int, file_name: str, request: Request):
     try:
         message = await bot.get_messages(chat_id, ids=message_id)
+        if not message:
+            raise HTTPException(status_code=404, detail="Message not found")
+            
         file = message.video or message.document
         if not file:
             raise HTTPException(status_code=404, detail="Media not found")
@@ -208,21 +217,22 @@ async def stream_video(chat_id: int, message_id: int, file_name: str, request: R
         mime_type = file.mime_type or "video/mp4"
         range_header = request.headers.get("range")
         
-        # Display name အတွက် Decode လုပ်ခြင်း
         display_name = unquote(file_name)
         
         headers = {
             "Content-Type": mime_type,
             "Accept-Ranges": "bytes",
             "Cache-Control": "public, max-age=3600",
-            # Player/Browser တွင် Video နာမည် မှန်မှန်ပေါ်စေရန် Content-Disposition ထည့်သွင်းခြင်း
             "Content-Disposition": f'inline; filename="{display_name}"'
         }
         
         if range_header:
             match = re.search(r"bytes=(\d+)-(\d*)", range_header)
-            start = int(match.group(1))
-            end = int(match.group(2)) if match.group(2) else file_size - 1
+            if match:
+                start = int(match.group(1))
+                end = int(match.group(2)) if match.group(2) else file_size - 1
+            else:
+                start, end = 0, file_size - 1
             
             if end >= file_size:
                 end = file_size - 1
@@ -253,7 +263,6 @@ async def stream_video(chat_id: int, message_id: int, file_name: str, request: R
 # --- [ MAIN RUNNER SECTION ] ---
 
 async def main():
-    # Cloud Platform ကပေးတဲ့ PORT ကို ယူသုံးခြင်း (မရှိရင် 8080 ကိုသုံးမည်)
     port = int(os.environ.get("PORT", 8080))
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
