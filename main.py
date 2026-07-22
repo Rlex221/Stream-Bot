@@ -31,23 +31,26 @@ def myanmar_to_english_digits(text: str) -> str:
     return text.translate(trans_table)
 
 def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
-    """Movie/Series ဖိုင်များအတွက် အပိုစာသားများ ရှင်းထုတ်ပြီး Title သန့်ပေးသည့် Function"""
+    """ဘယ် Movie/Series ကိုမဆို အပိုစာသားများ ရှင်းထုတ်ပြီး Title သန့်ပေးသည့် Function"""
     if not raw_name:
         raw_name = ""
 
     raw_name = myanmar_to_english_digits(raw_name)
     caption_text = myanmar_to_english_digits(caption_text)
 
-    # 1. Extension ကို မူရင်းအတိုင်း ဆွဲထုတ်မည် (.mp4, .mkv, .avi စသည်)
+    # 1. Mime/File Extension မူရင်းအတိုင်း ခွဲထုတ်မည် (.mp4, .mkv, .avi စသည်)
     ext = ".mp4"
     if "." in raw_name:
         parts = raw_name.rsplit(".", 1)
         if len(parts[1]) <= 4:
             raw_name, ext = parts[0], f".{parts[1]}"
 
-    # Hashtag စာသားများကို # ဖုတ်ပြီး ထည့်မည်
+    # Hashtag မှ '#' ကို ဖျက်မည်
     clean_caption = re.sub(r'#(\w+)', r'\1', caption_text)
     full_text = f"{raw_name} {clean_caption}"
+
+    # Symbol များဖြစ်သော `.`, `_`, `-`, `[` `]` များကို Space ဖြင့် အစားထိုးမည်
+    full_text = re.sub(r'[\._\-\[\}\]\(\)\{\}]', ' ', full_text)
 
     # 2. Season နှင့် Episode ဂဏန်းများ ရှာထုတ်မည်
     ep_number = ""
@@ -62,36 +65,36 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
         if ep_match:
             ep_number = str(int(ep_match.group(1))).zfill(2)
 
-    # Movie Year (ဥပမာ 2025, 2026) ရှာမည်
+    # Movie Year (1900 မှ 2099 ထိ) ရှာမည်
     year_match = re.search(r'\b(19\d{2}|20\d{2})\b', full_text)
     year_str = f"({year_match.group(1)})" if year_match else ""
 
-    # 3. မလိုလားအပ်သော Ads, Tags, Noise Words များကို ဖယ်ထုတ်မည်
+    # 3. Ads, Tags, Resolution, Channel Names များကို ရှင်းထုတ်မည်
     unwanted_patterns = [
         r'\bcrawler\b', r'\bjoined\b', r'\bjoin\b', r'\bkara\b', r'\bsu\b', r'\bmw\b',
         r'\bamzn\b', r'\bysflix\b', r'\bnf\b', r'\bdsnx\b', r'\bhbo\b', r'\bpdp\b',
         r'\bchannel\b', r'\btelegram\b', r'\bmyanmar\s*sub(?:titles?)?\b', r'\bmmsub(?:titles?)?\b',
         r'\bsubtitles?\b', r'\bsub\b', r'\btranslation\b', r'\bsoulkingdom\b',
-        r'\[mmsub\]', r'\(mmsub\)', r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b4k\b',
-        r'\bhd\b', r'\bweb-dl\b', r'\bwebrip\b', r'\bbluray\b', r'\bhdrip\b', r'\bx264\b',
-        r'\bx265\b', r'\baac\b', r'\besub\b', r'http\S+', r'www\.\S+', r'@\w+'
+        r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b360p?\b', r'\b4k\b', r'\bhd\b',
+        r'\bweb-dl\b', r'\bwebrip\b', r'\bbluray\b', r'\bhdrip\b', r'\bx264\b', r'\bx265\b',
+        r'\baac\b', r'\besub\b', r'http\S+', r'www\.\S+', r'@\w+'
     ]
 
     working_text = full_text
     for pattern in unwanted_patterns:
         working_text = re.sub(pattern, ' ', working_text, flags=re.IGNORECASE)
 
-    # 4. မြန်မာစာသားများနှင့် Ep/Season စာလုံးများကို Title ထဲမှ ဖယ်ထုတ်မည်
+    # 4. မြန်မာစာသားများနှင့် Season/Episode အသုံးအနှုန်းများကို Title မှ ရှင်းထုတ်မည်
     working_text = re.sub(r'[\u1000-\u109F]+', ' ', working_text)
     working_text = re.sub(r'\bs\d{1,2}\s*e\d{1,4}\b', ' ', working_text, flags=re.IGNORECASE)
-    working_text = re.sub(r'(?:ep|episode|e)\s*[\(\[\{:._-]?\s*\d{1,4}\s*[\)\]\}]?', ' ', working_text, flags=re.IGNORECASE)
+    working_text = re.sub(r'(?:ep|episode|e)\s*\d{1,4}\b', ' ', working_text, flags=re.IGNORECASE)
     if year_match:
         working_text = re.sub(r'\b(19\d{2}|20\d{2})\b', ' ', working_text)
 
-    # Special Characters ရှင်းထုတ်မည်
+    # အင်္ဂလိပ်စာလုံးနှင့် စိစစ်ပြီး အပို သင်္ကေတများ ဖျက်မည်
     working_text = re.sub(r'[^a-zA-Z\s]', ' ', working_text)
 
-    # King / Avatar စာလုံး ထပ်နေပါက / ထပ်နေသော စာလုံးများကို ရှင်းထုတ်မည်
+    # ထပ်နေသော စာလုံးများကို အစဉ်လိုက်အတိုင်း Deduplicate ပြုလုပ်ခြင်း
     words = working_text.split()
     seen = set()
     dedup_words = []
@@ -103,14 +106,10 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
 
     clean_title = " ".join(dedup_words).strip().title()
 
-    # The King Avatar သို့မဟုတ် King Avatar သို့ ပြင်ဆင်ပေးခြင်း
-    if "Kingavatar" in clean_title:
-        clean_title = clean_title.replace("Kingavatar", "King Avatar")
-
     if not clean_title or clean_title.lower() in ["video", "file", "movie"]:
         clean_title = "Movie"
 
-    # 5. Output Format ပေါင်းစပ်ခြင်း
+    # 5. Output Format ကို စနစ်တကျ ပြန်လည် ပေါင်းစပ်ခြင်း
     if season_number and ep_number:
         final_name = f"{clean_title} S{season_number} Ep {ep_number}"
     elif ep_number:
@@ -124,7 +123,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
 
 
 def extract_file_name(message) -> str:
-    """Telegram Message မှ Video/Document ရဲ့ File Name နှင့် Caption ကို တွဲဖက်ထုတ်ယူပေးသည့် Function"""
+    """Telegram Message မှ File Name နှင့် Caption ကို တွဲဖက်ထုတ်ယူပေးသည့် Function"""
     file_name = None
     caption = message.text or ""
 
