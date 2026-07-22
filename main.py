@@ -29,83 +29,77 @@ def myanmar_to_english_digits(text: str) -> str:
     trans_table = str.maketrans(mm_digits, en_digits)
     return text.translate(trans_table)
 
-def clean_and_format_title(name: str, caption_text: str = "") -> str:
+def clean_and_format_title(raw_title: str) -> str:
     """မည်သည့် Movie/Series ဖိုင်မဆို မလိုလားအပ်သည်များရှင်းထုတ်ပြီး Universal Format ထုတ်ပေးသည့် Function"""
-    if not name:
-        name = ""
+    if not raw_title:
+        return "Video.mp4"
 
     # မြန်မာဂဏန်းများကို အင်္ဂလိပ်ဂဏန်းသို့ ပြောင်းမည်
-    name = myanmar_to_english_digits(name)
-    caption_text = myanmar_to_english_digits(caption_text)
+    text = myanmar_to_english_digits(raw_title)
 
     # 1. Extension ကို ခွဲထုတ်မည်
     ext = ".mp4"
-    if "." in name:
-        parts = name.rsplit(".", 1)
-        if len(parts[1]) <= 4:
-            name, ext = parts[0], f".{parts[1]}"
-
-    full_text = f"{name} {caption_text}"
+    if "." in text:
+        parts = text.rsplit(".", 1)
+        if len(parts[1]) <= 4 and re.match(r'^[a-zA-Z0-9]+$', parts[1]):
+            text, ext = parts[0], f".{parts[1]}"
 
     # 2. မလိုလားအပ်သော Quality, Channel Name, Crawler, Subtitle Tag များကို အရင်ဆုံး ရှင်းထုတ်မည်
     unwanted_patterns = [
-        r'\d*mmsubtitles?\b', r'\d*mmsubs?\b', r'\bmyanmar\s*sub\b', 
-        r'\bsubtitles?\b', r'\[mmsub\]', r'\(mmsub\)', r'\b\d*sub\b',
-        r'\bcrawler\b', r'\bjoined\b', r'\bbot\b', r'\bchannel\b', r'\btelegram\b',
-        r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b4k\b', r'\bhd\b', r'\bweb-dl\b',
-        r'\bbluray\b', r'\bhdrip\b', r'\bx264\b', r'\bx265\b', r'\baac\b', r'\besub\b'
+        r'crawler', r'joined', r'mmsubtitle[s]?', r'mmsub[s]?', r'myanmar\s*sub', 
+        r'subtitle[s]?', r'\[mmsub\]', r'\(mmsub\)', r'\d+sub',
+        r'bot', r'channel', r'telegram', r't\.me/\S+', r'https?://\S+',
+        r'1080p?', r'720p?', r'480p?', r'4k', r'hd', r'web-dl',
+        r'bluray', r'hdrip', r'x264', r'x265', r'aac', r'esub'
     ]
     
     for pattern in unwanted_patterns:
-        name = re.sub(pattern, '', name, flags=re.IGNORECASE)
-        full_text = re.sub(pattern, '', full_text, flags=re.IGNORECASE)
+        text = re.sub(pattern, '', text, flags=re.IGNORECASE)
 
-    # 3. Episode သို့မဟုတ် Season ပါမပါ ရှာမည် (S01E02, Ep 01, Episode 1, E1, စသဖြင့်)
+    # 3. Episode သို့မဟုတ် Season ပါမပါ ရှာမည်
     ep_number = ""
     season_number = ""
 
-    # Season & Episode တွဲလျက်ပါပါက (ဥပမာ S01E05)
-    s_ep_match = re.search(r'\bs(\d{1,2})\s*e(\d{1,4})\b', full_text, re.IGNORECASE)
+    # Season & Episode တွဲလျက်ပါပါက (ဥပမာ S01E05, S1E2)
+    s_ep_match = re.search(r's(\d{1,2})\s*e(\d{1,4})', text, re.IGNORECASE)
     if s_ep_match:
         season_number = str(int(s_ep_match.group(1)))
         ep_number = str(int(s_ep_match.group(2)))
+        text = re.sub(r's\d{1,2}\s*e\d{1,4}', '', text, flags=re.IGNORECASE)
     else:
-        # Episode သီးသန့်ပါပါက (ဥပမာ Ep 107, Episode 5, E02, သို့မဟုတ် စာကြောင်းအဆုံးရှိ ဂဏန်း)
-        ep_match = re.search(r'\b(?:ep|episode|e)?\s*[:._-]?\s*(\d{1,4})\b', full_text, re.IGNORECASE)
+        # Episode သီးသန့်ပါပါက (ဥပမာ Ep 107, Episode 5, E02, သို့မဟုတ် စာကြောင်းအဆုံး/အလယ်ရှိ Ep)
+        ep_match = re.search(r'(?:ep|episode|e)?\s*[:._-]?\s*(\d{1,4})', text, re.IGNORECASE)
         if ep_match:
             ep_number = str(int(ep_match.group(1)))
+            text = re.sub(r'(?:ep|episode|e)?\s*[:._-]?\s*\d{1,4}', '', text, flags=re.IGNORECASE)
 
-    # 4. Year/ခုနှစ် ပါမပါ ရှာမည် (ဥပမာ 2023, 2024 စသည့် Movie များအတွက်)
-    year_match = re.search(r'\b(19\d{2}|20\d{2})\b', name)
+    # 4. Year/ခုနှစ် ပါမပါ ရှာမည်
+    year_match = re.search(r'(19\d{2}|20\d{2})', text)
     year_str = f"({year_match.group(1)})" if year_match else ""
-
-    # Episode / Season / Year ဂဏန်းများကို နာမည်ထဲမှ ရှင်းထုတ်ခြင်း
-    name = re.sub(r'\bs\d{1,2}\s*e\d{1,4}\b', '', name, flags=re.IGNORECASE)
-    name = re.sub(r'\b(?:ep|episode|e)?\s*[:._-]?\s*\d{1,4}\b', '', name, flags=re.IGNORECASE)
     if year_match:
-        name = re.sub(r'\b(19\d{2}|20\d{2})\b', '', name)
+        text = re.sub(r'(19\d{2}|20\d{2})', '', text)
 
     # Special Characters နှင့် ပိုနေသော Space များကို ရှင်းထုတ်ခြင်း
-    name = re.sub(r'[\\/*?:"<>|\[\]()]', ' ', name)
-    name = re.sub(r'[\._-]+', ' ', name)
-    name = re.sub(r'\s+', ' ', name).strip()
+    text = re.sub(r'[\\/*?:"<>|\[\]()]', ' ', text)
+    text = re.sub(r'[\._-]+', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
 
-    # Title Case ပြုလုပ်ခြင်း (ဥပမာ- avatar -> Avatar)
-    name = name.title()
+    # Title Case ပြုလုပ်ခြင်း
+    text = text.title()
 
     # ဖိုင်နာမည် လုံးဝမကျန်ပါက Default ထည့်ပေးခြင်း
-    if not name:
-        name = "Video"
+    if not text:
+        text = "Video"
 
     # 5. Output Format ပြန်လည်ပေါင်းစပ်ခြင်း
     if season_number and ep_number:
-        final_name = f"{name} S{season_number} Ep {ep_number}"
+        final_name = f"{text} S{season_number} Ep {ep_number}"
     elif ep_number:
-        final_name = f"{name} Ep {ep_number}"
+        final_name = f"{text} Ep {ep_number}"
     elif year_str:
-        final_name = f"{name} {year_str}"
+        final_name = f"{text} {year_str}"
     else:
-        final_name = name
+        final_name = text
 
     return f"{final_name}{ext}"
 
@@ -115,28 +109,31 @@ def extract_file_name(message) -> str:
     file_name = None
     caption = message.text or ""
 
+    # 1. Video Attribute ထဲမှ File Name ရှာမည်
     if message.document and message.document.attributes:
         for attr in message.document.attributes:
             if hasattr(attr, 'file_name') and attr.file_name:
                 file_name = attr.file_name
                 break
 
-    if not file_name and message.video:
-        if hasattr(message.video, 'attributes'):
-            for attr in message.video.attributes:
-                if hasattr(attr, 'file_name') and attr.file_name:
-                    file_name = attr.file_name
-                    break
+    if not file_name and message.video and hasattr(message.video, 'attributes'):
+        for attr in message.video.attributes:
+            if hasattr(attr, 'file_name') and attr.file_name:
+                file_name = attr.file_name
+                break
 
-    if not file_name and caption:
-        first_line = caption.split('\n')[0].strip()
-        if first_line and len(first_line) < 100:
-            file_name = first_line
+    # 2. File Name မရှိပါက သို့မဟုတ် File Name က 'video.mp4' ကဲ့သို့ ယေဘုယျဆန်နေပါက Caption မှ နာမည်ယူမည်
+    if not file_name or file_name.lower().startswith("video"):
+        if caption:
+            # Caption ၏ ပထမဆုံး လိုင်းကို ယူမည်
+            first_line = caption.strip().split('\n')[0].strip()
+            if first_line:
+                file_name = first_line
 
     if not file_name:
         file_name = "Video.mp4"
 
-    return clean_and_format_title(file_name, caption_text=caption)
+    return clean_and_format_title(file_name)
 
 
 # --- [ TELEGRAM BOT SECTION ] ---
@@ -150,7 +147,14 @@ async def video_handler(event):
     if event.message.text and event.message.text.startswith('/start'):
         return
 
-    if event.message.video or (event.message.document and event.message.document.mime_type and event.message.document.mime_type.startswith('video/')):
+    # Message နှစ်ခါမထွက်စေရန် Video (သို့မဟုတ်) Video Mime Type ရှိသော Document ကိုသာ စစ်ထုတ်ခြင်း
+    is_video = False
+    if event.message.video:
+        is_video = True
+    elif event.message.document and event.message.document.mime_type and event.message.document.mime_type.startswith('video/'):
+        is_video = True
+
+    if is_video:
         chat_id = event.chat_id
         message_id = event.message.id
         
