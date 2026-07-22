@@ -16,7 +16,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 # သင့် Render / Railway ရဲ့ Domain URL ကို ဒီနေရာမှာ ထည့်ပါ (အနောက်မှာ / မပါရပါ)
 SERVER_URL = os.environ.get("SERVER_URL", "https://your-app-name.onrender.com")
 
-# Telethon Telegram Client (ဒီနေရာမှာ .start() တန်းမခေါ်ဘဲ ခွဲထုတ်ထားပါသည်)
+# Telethon Telegram Client
 bot = TelegramClient('telethon_stream_bot', API_ID, API_HASH)
 app = FastAPI(title="Telegram Video Streamer")
 
@@ -31,76 +31,71 @@ def myanmar_to_english_digits(text: str) -> str:
     return text.translate(trans_table)
 
 def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
-    """Movie/Series ဖိုင်များအတွက် Amzn, Ysflix, Crawler စသည်တို့ကို ရှင်းထုတ်ပြီး Title သန့်ပေးသည့် Function"""
+    """Movie/Series ဖိုင်များအတွက် အပိုစာသားများ ရှင်းထုတ်ပေးသည့် Function"""
     if not raw_name:
         raw_name = ""
 
-    # မြန်မာဂဏန်းများကို အင်္ဂလိပ်ဂဏန်းသို့ ပြောင်းမည်
+    # မြန်မာဂဏန်းများကို အင်္ဂလိပ်ဂဏန်းသို့ အရင်ပြောင်းမည်
     raw_name = myanmar_to_english_digits(raw_name)
     caption_text = myanmar_to_english_digits(caption_text)
 
-    # 1. Extension ကို ခွဲထုတ်မည်
+    # 1. Extension ခွဲထုတ်မည်
     ext = ".mp4"
     if "." in raw_name:
         parts = raw_name.rsplit(".", 1)
         if len(parts[1]) <= 4:
             raw_name, ext = parts[0], f".{parts[1]}"
 
-    caption_first_line = caption_text.split('\n')[0] if caption_text else ""
-    full_text = f"{raw_name} {caption_first_line}"
+    # Caption ထဲမှ Hashtag (#KingAvatar စသည်) များပါပါက အရှေ့ # ကို ဖြုတ်ပေးမည်
+    clean_caption = re.sub(r'#(\w+)', r'\1', caption_text)
+    full_text = f"{raw_name} {clean_caption}"
 
-    # 2. Episode / Season ဂဏန်းကို သီးသန့် ရှာထုတ်မည်
+    # 2. Episode နှင့် Season ဂဏန်းများကို ရှာထုတ်မည်
     ep_number = ""
     season_number = ""
 
-    # Season & Episode (S01E02)
+    # S01E02 သို့မဟုတ် S1E2 Format ရှာမည်
     s_ep_match = re.search(r'\bs(\d{1,2})\s*e(\d{1,4})\b', full_text, re.IGNORECASE)
     if s_ep_match:
         season_number = str(int(s_ep_match.group(1))).zfill(2)
         ep_number = str(int(s_ep_match.group(2))).zfill(2)
     else:
-        # Ep 01, Episode 02, E03, အပိုင်း 01 သို့မဟုတ် စာသားထဲရှိ Episode ဂဏန်း
-        ep_match = re.search(r'(?:ep|episode|e|အပိုင်း)\s*[:._-]?\s*(\d{1,3})', full_text, re.IGNORECASE)
-        if not ep_match:
-            ep_match = re.search(r'\bep\s*(\d{1,3})\b', full_text, re.IGNORECASE)
+        # Ep 01, Episode 02, E03, အပိုင်း (၂), အပိုင်း 2 စသည်တို့ကို ရှာမည်
+        ep_match = re.search(r'(?:ep|episode|e|အပိုင်း)\s*[\(\[\{:._-]?\s*(\d{1,4})\s*[\)\]\}]?', full_text, re.IGNORECASE)
         if ep_match:
             ep_number = str(int(ep_match.group(1))).zfill(2)
 
-    # Movie Year ရှာမည် (ဥပမာ 2026)
+    # Movie Year (ဥပမာ 2025, 2026) ရှာမည်
     year_match = re.search(r'\b(19\d{2}|20\d{2})\b', full_text)
     year_str = f"({year_match.group(1)})" if year_match else ""
 
-    # 3. မလိုလားအပ်သော Channel Tags, Streaming Platforms, Release Groups များကို ဖယ်ထုတ်မည်
+    # 3. မလိုလားအပ်သော Ads, Channel Names, Noise Words များကို ဖယ်ထုတ်မည်
     unwanted_patterns = [
-        r'\bamzn\b', r'\bysflix\b', r'\bnf\b', r'\bdsnx\b', r'\bhbo\b', r'\bpdp\b',
-        r'\bcrawler\b', r'\bjoined\b', r'\bjoin\b', r'\bchannel\b', r'\btelegram\b',
+        r'\bcrawler\b', r'\bjoined\b', r'\bjoin\b', r'\bmw\b', r'\bamzn\b', r'\bysflix\b',
+        r'\bnf\b', r'\bdsnx\b', r'\bhbo\b', r'\bpdp\b', r'\bchannel\b', r'\btelegram\b',
         r'\bmyanmar\s*sub(?:titles?)?\b', r'\bmmsub(?:titles?)?\b', r'\bsubtitles?\b', r'\bsub\b',
-        r'\[mmsub\]', r'\(mmsub\)', r'\[\s*\]', r'\(\s*\)',
+        r'\btranslation\b', r'\bsoulkingdom\b', r'\[mmsub\]', r'\(mmsub\)',
         r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b4k\b', r'\bhd\b', r'\bweb-dl\b', r'\bwebrip\b',
         r'\bbluray\b', r'\bhdrip\b', r'\bx264\b', r'\bx265\b', r'\baac\b', r'\besub\b',
-        r'http\S+', r'www\.\S+', r'@\w+',
-        r'အပိုင်း', r'စစ်နတ်ဘုရားရဲ့ဂုဏ်သရေ'
+        r'http\S+', r'www\.\S+', r'@\w+'
     ]
-    
-    clean_text = full_text
+
+    working_text = full_text
     for pattern in unwanted_patterns:
-        clean_text = re.sub(pattern, ' ', clean_text, flags=re.IGNORECASE)
+        working_text = re.sub(pattern, ' ', working_text, flags=re.IGNORECASE)
 
-    # မြန်မာစာလုံးများကို ဖယ်ထုတ်ပြီး အင်္ဂလိပ် Title စာသားကိုပဲ ယူမည်
-    clean_text = re.sub(r'[\u1000-\u109F]', ' ', clean_text)
-
-    # 4. Title Name သန့်ထုတ်ခြင်း
-    # Episode/Season/Year စာသားများကို Title ထဲမှ ဖယ်ထုတ်မည်
-    clean_text = re.sub(r'\bs\d{1,2}\s*e\d{1,4}\b', ' ', clean_text, flags=re.IGNORECASE)
-    clean_text = re.sub(r'(?:ep|episode|e)\s*[:._-]?\s*\d{1,4}', ' ', clean_text, flags=re.IGNORECASE)
+    # 4. မြန်မာစာသားများနှင့် Episode/Season ကြေညာချက် စာလုံးများကို Title မှ ဖယ်ထုတ်မည်
+    working_text = re.sub(r'[\u1000-\u109F]+', ' ', working_text)  # မြန်မာစာလုံးများ ရှင်းထုတ်မည်
+    working_text = re.sub(r'\bs\d{1,2}\s*e\d{1,4}\b', ' ', working_text, flags=re.IGNORECASE)
+    working_text = re.sub(r'(?:ep|episode|e)\s*[\(\[\{:._-]?\s*\d{1,4}\s*[\)\]\}]?', ' ', working_text, flags=re.IGNORECASE)
     if year_match:
-        clean_text = re.sub(r'\b(19\d{2}|20\d{2})\b', ' ', clean_text)
+        working_text = re.sub(r'\b(19\d{2}|20\d{2})\b', ' ', working_text)
 
     # Special Characters များကို ရှင်းထုတ်မည်
-    clean_text = re.sub(r'[^a-zA-Z\s]', ' ', clean_text)
+    working_text = re.sub(r'[^a-zA-Z\s]', ' ', working_text)
 
-    # ထပ်နေသော Title စာလုံးများကို ရှင်းထုတ်မည်
-    words = clean_text.split()
+    # ထပ်နေသော စာလုံးများကို ရှင်းထုတ်မည် (Case-Insensitive Deduplication)
+    words = working_text.split()
     seen = set()
     dedup_words = []
     for w in words:
@@ -108,24 +103,21 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
         if w_lower not in seen:
             seen.add(w_lower)
             dedup_words.append(w)
-            
-    clean_text = " ".join(dedup_words)
-    clean_text = re.sub(r'\s+', ' ', clean_text).strip()
 
-    title_name = clean_text.title()
+    clean_title = " ".join(dedup_words).strip().title()
 
-    if not title_name or title_name.lower() in ["video", "file", "movie"]:
-        title_name = "Movie"
+    if not clean_title or clean_title.lower() in ["video", "file", "movie"]:
+        clean_title = "Movie"
 
-    # 5. Final Output Format ပေါင်းစပ်ခြင်း
+    # 5. Output Format အဆုံးသတ် ပေါင်းစပ်ခြင်း
     if season_number and ep_number:
-        final_name = f"{title_name} S{season_number} Ep {ep_number}"
+        final_name = f"{clean_title} S{season_number} Ep {ep_number}"
     elif ep_number:
-        final_name = f"{title_name} Ep {ep_number}"
+        final_name = f"{clean_title} Ep {ep_number}"
     elif year_str:
-        final_name = f"{title_name} {year_str}"
+        final_name = f"{clean_title} {year_str}"
     else:
-        final_name = title_name
+        final_name = clean_title
 
     return f"{final_name}{ext}"
 
@@ -296,7 +288,6 @@ async def stream_video(chat_id: int, message_id: int, file_name: str, request: R
 # --- [ MAIN RUNNER SECTION ] ---
 
 async def main():
-    # FloodWaitError ကို စောင့်ဆိုင်းပေးမည့် အပိုင်း
     try:
         await bot.start(bot_token=BOT_TOKEN)
         print("✅ Telegram Bot Successfully Started!")
