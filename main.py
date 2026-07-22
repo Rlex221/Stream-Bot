@@ -77,7 +77,6 @@ def clean_and_format_title(raw_name: str, caption_text: str = "") -> str:
     hashtags = re.findall(r'#(\w+)', full_text)
     for tag in hashtags:
         if tag.lower() not in ignore_tags:
-            # CamelCase စာလုံးများကို ခွဲမည် (BlossomsOfPower -> Blossoms Of Power)
             tag_spaced = re.sub(r'([a-z])([A-Z])', r'\1 \2', tag)
             clean_title = tag_spaced.replace("_", " ").strip().title()
             break
@@ -157,32 +156,40 @@ def extract_file_name(message) -> str:
 
 # --- [ TELEGRAM BOT SECTION ] ---
 
-@bot.on(events.NewMessage(pattern='/start', incoming=True))
+@bot.on(events.NewMessage(pattern=r'^/start$'))
 async def start_handler(event):
     await event.reply("👋 မင်္ဂလာပါ! ကျွန်တော့်ဆီကို ဘယ်ဗီဒီယိုဖိုင်မဆို ပို့ပေးပါ။ တိုက်ရိုက်ကြည့်ရှုနိုင်မယ့် Stream Link ထုတ်ပေးပါမယ်။")
 
 @bot.on(events.NewMessage(incoming=True))
 async def video_handler(event):
-    # /start command ကို ကျော်မည်
+    # Text သီးသန့် (/start သို့မဟုတ် အခြားစာများ) ဆိုပါက မလုပ်ဆောင်ပါ
     if event.message.text and event.message.text.startswith('/start'):
         return
 
-    # Video သို့မဟုတ် Document (Video type) ဖြစ်မဖြစ် စစ်ဆေးခြင်း
-    media = event.message.video
-    if not media and event.message.document:
-        if event.message.document.mime_type and event.message.document.mime_type.startswith('video/'):
-            media = event.message.document
+    # Message တွင် Video သို့မဟုတ် File Document ပါမပါ စစ်ဆေးခြင်း
+    msg = event.message
+    media = msg.video or msg.document
+
+    # Document ဖြစ်ပါက Video ဖိုင် ဟုတ်မဟုတ် ခွဲခြားစစ်ဆေးခြင်း
+    if msg.document and not msg.video:
+        mime = msg.document.mime_type or ""
+        # mime_type မပါခဲ့လျှင် file extension ကို စစ်ပါမည်
+        is_video = mime.startswith("video/") or any(
+            attr.file_name.lower().endswith(('.mp4', '.mkv', '.avi', '.mov', '.webm', '.flv', '.wmv'))
+            for attr in msg.document.attributes if hasattr(attr, 'file_name') and attr.file_name
+        )
+        if not is_video:
+            media = None
 
     if media:
         chat_id = event.chat_id
-        message_id = event.message.id
+        message_id = msg.id
         
-        raw_file_name = extract_file_name(event.message)
+        raw_file_name = extract_file_name(msg)
         safe_file_name = quote(raw_file_name)
         
         stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}/{safe_file_name}"
         
-        # File Name လိုင်းအား ဖျက်ထားပြီး တစ်ကြိမ်သာ reply ပြန်ပါမည်
         response_text = (
             f"🔗 **သင့်ဗီဒီယိုအတွက် Stream Link ရပါပြီ:**\n\n"
             f"`{stream_link}`\n\n"
@@ -250,7 +257,7 @@ async def stream_video(chat_id: int, message_id: int, file_name: str, request: R
             raise HTTPException(status_code=404, detail="Media not found")
         
         file_size = file.size
-        mime_type = file.mime_type or "video/mp4"
+        mime_type = getattr(file, 'mime_type', None) or "video/mp4"
         range_header = request.headers.get("range")
         
         display_name = unquote(file_name)
