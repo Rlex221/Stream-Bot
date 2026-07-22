@@ -47,7 +47,20 @@ def clean_and_format_title(name: str, caption_text: str = "") -> str:
 
     full_text = f"{name} {caption_text}"
 
-    # 2. Episode သို့မဟုတ် Season ပါမပါ ရှာမည် (S01E02, Ep 01, Episode 1, E1, စသဖြင့်)
+    # 2. မလိုလားအပ်သော Quality, Channel Name, Crawler, Subtitle Tag များကို အရင်ဆုံး ရှင်းထုတ်မည်
+    unwanted_patterns = [
+        r'\d*mmsubtitles?\b', r'\d*mmsubs?\b', r'\bmyanmar\s*sub\b', 
+        r'\bsubtitles?\b', r'\[mmsub\]', r'\(mmsub\)', r'\b\d*sub\b',
+        r'\bcrawler\b', r'\bjoined\b', r'\bbot\b', r'\bchannel\b', r'\btelegram\b',
+        r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b4k\b', r'\bhd\b', r'\bweb-dl\b',
+        r'\bbluray\b', r'\bhdrip\b', r'\bx264\b', r'\bx265\b', r'\baac\b', r'\besub\b'
+    ]
+    
+    for pattern in unwanted_patterns:
+        name = re.sub(pattern, '', name, flags=re.IGNORECASE)
+        full_text = re.sub(pattern, '', full_text, flags=re.IGNORECASE)
+
+    # 3. Episode သို့မဟုတ် Season ပါမပါ ရှာမည် (S01E02, Ep 01, Episode 1, E1, စသဖြင့်)
     ep_number = ""
     season_number = ""
 
@@ -62,21 +75,9 @@ def clean_and_format_title(name: str, caption_text: str = "") -> str:
         if ep_match:
             ep_number = str(int(ep_match.group(1)))
 
-    # 3. Year/ခုနှစ် ပါမပါ ရှာမည် (ဥပမာ 2023, 2024 စသည့် Movie များအတွက်)
+    # 4. Year/ခုနှစ် ပါမပါ ရှာမည် (ဥပမာ 2023, 2024 စသည့် Movie များအတွက်)
     year_match = re.search(r'\b(19\d{2}|20\d{2})\b', name)
     year_str = f"({year_match.group(1)})" if year_match else ""
-
-    # 4. မလိုလားအပ်သော Quality, Channel Name, Subtitle Tag များ ရှင်းထုတ်ခြင်း
-    unwanted_patterns = [
-        r'\d*mmsubtitles?\b', r'\d*mmsubs?\b', r'\bmyanmar\s*sub\b', 
-        r'\bsubtitles?\b', r'\[mmsub\]', r'\(mmsub\)', r'\b\d*sub\b',
-        r'\bcrawler\b', r'\bjoined\b', r'\bbot\b', r'\bchannel\b', r'\btelegram\b',
-        r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b4k\b', r'\bhd\b', r'\bweb-dl\b',
-        r'\bbluray\b', r'\bhdrip\b', r'\bx264\b', r'\bx265\b', r'\baac\b', r'\besub\b'
-    ]
-    
-    for pattern in unwanted_patterns:
-        name = re.sub(pattern, '', name, flags=re.IGNORECASE)
 
     # Episode / Season / Year ဂဏန်းများကို နာမည်ထဲမှ ရှင်းထုတ်ခြင်း
     name = re.sub(r'\bs\d{1,2}\s*e\d{1,4}\b', '', name, flags=re.IGNORECASE)
