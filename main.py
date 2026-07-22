@@ -22,62 +22,79 @@ app = FastAPI(title="Telegram Video Streamer")
 
 # --- [ HELPER FUNCTIONS ] ---
 
-def clean_and_format_title(name: str) -> str:
-    """mmsub ဖြုတ်ခြင်း၊ စာလုံးရှေ့အကြီးပြောင်းခြင်း နှင့် EP နံပါတ်ခြားပေးသည့် Function"""
+def clean_and_format_title(name: str, caption_text: str = "") -> str:
+    """mmsub ဖြုတ်ခြင်း၊ စာလုံးပိုများရှင်းခြင်း၊ စာလုံးရှေ့အကြီးပြောင်းခြင်း နှင့် EP နံပါတ်စနစ်တကျ ခွဲထုတ်ပေးသည့် Function"""
     if not name:
-        return ""
+        name = ""
 
     # 1. Extension ကို သီးသန့်ခွဲထုတ်ထားမည်
-    ext = ""
+    ext = ".mp4"
     if "." in name:
         parts = name.rsplit(".", 1)
-        name, ext = parts[0], f".{parts[1]}"
+        if len(parts[1]) <= 4:
+            name, ext = parts[0], f".{parts[1]}"
 
     # 2. Underscore (_), Dot (.) များကို Space သို့ ပြောင်းမည်
     name = re.sub(r'[\._]', ' ', name)
 
-    # 3. mmsub, mmsubtitle, sub, myanmar sub စသည်တို့ကို ဖြုတ်ပါ (Case-insensitive)
+    # 3. မလိုလားအပ်သော မကင်းရာမကင်းကြောင်း စာသားများ (Crawler, Joined, mmsub စသည်) ရှင်းထုတ်ခြင်း
     unwanted_patterns = [
         r'\bmmsubtitles?\b', r'\bmmsubs?\b', r'\bmyanmar\s*sub\b', 
-        r'\bsubtitles?\b', r'\[mmsub\]', r'\(mmsub\)', r'\bsub\b'
+        r'\bsubtitles?\b', r'\[mmsub\]', r'\(mmsub\)', r'\bsub\b',
+        r'\bcrawler\b', r'\bjoined\b', r'\bbot\b', r'\bchannel\b'
     ]
     for pattern in unwanted_patterns:
         name = re.sub(pattern, '', name, flags=re.IGNORECASE)
 
-    # 4. Episode နံပါတ်များ မကပ်စေရန် Space ခြားပေးခြင်း
-    # ဥပမာ - MovieEp01 -> Movie Ep 01, SeriesE05 -> Series E 05, Ep-01 -> Ep 01
-    name = re.sub(r'([a-zA-Z]+)(ep|e|sp)(\d+)', r'\1 \2 \3', name, flags=re.IGNORECASE)
-    name = re.sub(r'\b(ep|e|sp)(\d+)\b', r'\1 \2', name, flags=re.IGNORECASE)
-    name = re.sub(r'(\d+)(ep|e|sp)', r'\1 \2', name, flags=re.IGNORECASE)
-    name = re.sub(r'[-_]+', ' ', name)
+    # 4. Caption ထဲတွင် Episode ဂဏန်း ပါမပါ စစ်ဆေးခြင်း
+    ep_number = ""
+    if caption_text:
+        # Ep 107, Episode 107, E107 သို့မဟုတ် စာကြောင်းအစ/အဆုံး၌ ဂဏန်းသီးသန့်ပါပါက ရှာမည်
+        ep_match = re.search(r'\b(?:ep|episode|e)?\s*[:._-]?\s*(\d{1,4})\b', caption_text, re.IGNORECASE)
+        if ep_match:
+            ep_number = ep_match.group(1)
 
-    # 5. မလိုလားအပ်သော Special Characters များကို ရှင်းထုတ်ခြင်း
+    # File Name ကိုယ်တိုင်ထဲတွင်လည်း Episode ပါမပါ ရှာခြင်း
+    if not ep_number:
+        ep_match_name = re.search(r'\b(?:ep|episode|e)\s*[:._-]?\s*(\d{1,4})\b', name, re.IGNORECASE)
+        if ep_match_name:
+            ep_number = ep_match_name.group(1)
+
+    # 5. File Name ထဲမှ Ep / Episode စာသားများနှင့် သီးသန့် ဂဏန်းများကို ခဏရှင်းထုတ်၍ Clean လုပ်ခြင်း
+    name = re.sub(r'\b(?:ep|episode|e)?\s*[:._-]?\s*\d{1,4}\b', '', name, flags=re.IGNORECASE)
+    
+    # Special Characters များ ရှင်းထုတ်ခြင်း
     name = re.sub(r'[\\/*?:"<>|\[\]()]', ' ', name)
-
-    # 6. Space မျိုးစုံကို Single Space ပြောင်းခြင်း
+    name = re.sub(r'[-_]+', ' ', name)
     name = re.sub(r'\s+', ' ', name).strip()
 
-    # 7. စာလုံးတိုင်း၏ ရှေ့စာလုံးကို အကြီးပြောင်းခြင်း (Title Case)
+    # 6. စာလုံးတိုင်း၏ ရှေ့စာလုံးကို အကြီးပြောင်းခြင်း (Title Case)
     name = name.title()
 
-    # EP / E / SP စာလုံးများကို ပုံစံမှန် အက္ခရာကြီး ပြောင်းပေးခြင်း
-    name = re.sub(r'\bEp\b', 'Ep', name, flags=re.IGNORECASE)
-    name = re.sub(r'\bE\b', 'E', name, flags=re.IGNORECASE)
+    # 7. Series Name + Episode Number ကို စနစ်တကျ ပြန်လည် ပေါင်းစပ်ခြင်း
+    if ep_number:
+        if name:
+            final_name = f"{name} Ep {ep_number}"
+        else:
+            final_name = f"Episode {ep_number}"
+    else:
+        final_name = name if name else "Video"
 
-    return f"{name}{ext if ext else '.mp4'}"
+    return f"{final_name}{ext}"
 
 
 def extract_file_name(message) -> str:
-    """Telegram Message မှ Video/Document ရဲ့ File Name ကို ရှာဖွေထုတ်ယူပေးသည့် Function"""
+    """Telegram Message မှ Video/Document ရဲ့ File Name နှင့် Caption ကို တွဲဖက်ထုတ်ယူပေးသည့် Function"""
     file_name = None
-    
+    caption = message.text or ""
+
     # Document ဖြစ်ပါက attributes ထဲမှ file_name ကို ရှာမည်
     if message.document and message.document.attributes:
         for attr in message.document.attributes:
             if hasattr(attr, 'file_name') and attr.file_name:
                 file_name = attr.file_name
                 break
-                
+
     # Video file ဖြစ်ပြီး file_name မရှိသေးပါက
     if not file_name and message.video:
         if hasattr(message.video, 'attributes'):
@@ -86,18 +103,18 @@ def extract_file_name(message) -> str:
                     file_name = attr.file_name
                     break
 
-    # Caption သို့မဟုတ် Text မှ ရှာခြင်း
-    if not file_name and message.text:
-        first_line = message.text.split('\n')[0].strip()
+    # Caption သို့မဟုတ် Text ၏ ပထမစာကြောင်းကို ဖိုင်နာမည်အဖြစ် သုံးခြင်း
+    if not file_name and caption:
+        first_line = caption.split('\n')[0].strip()
         if first_line and len(first_line) < 100:
             file_name = first_line
 
     # ဖိုင်နာမည် လုံးဝ မရှိပါက Default ပေးခြင်း
     if not file_name:
-        file_name = "video.mp4"
+        file_name = "Video.mp4"
 
     # Clean & Format ပြုလုပ်ခြင်း
-    return clean_and_format_title(file_name)
+    return clean_and_format_title(file_name, caption_text=caption)
 
 
 # --- [ TELEGRAM BOT SECTION ] ---
