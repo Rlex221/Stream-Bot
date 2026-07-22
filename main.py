@@ -12,7 +12,7 @@ API_ID = int(os.environ.get("API_ID", 0))  # သို့မဟုတ် int("YO
 API_HASH = os.environ.get("API_HASH", "YOUR_API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 
-# သင့် Render / Hosting ရဲ့ Domain URL ကို ဒီနေရာမှာ ထည့်ပါ (အနောက်မှာ / မပါရပါ)
+# သင့် Render / Railway ရဲ့ Domain URL ကို ဒီနေရာမှာ ထည့်ပါ (အနောက်မှာ / မပါရပါ)
 SERVER_URL = os.environ.get("SERVER_URL", "https://your-app-name.onrender.com")
 
 # Telethon Telegram Client
@@ -21,6 +21,51 @@ app = FastAPI(title="Telegram Video Streamer")
 
 
 # --- [ HELPER FUNCTIONS ] ---
+
+def clean_and_format_title(name: str) -> str:
+    """mmsub ဖြုတ်ခြင်း၊ စာလုံးရှေ့အကြီးပြောင်းခြင်း နှင့် EP နံပါတ်ခြားပေးသည့် Function"""
+    if not name:
+        return ""
+
+    # 1. Extension ကို သီးသန့်ခွဲထုတ်ထားမည်
+    ext = ""
+    if "." in name:
+        parts = name.rsplit(".", 1)
+        name, ext = parts[0], f".{parts[1]}"
+
+    # 2. Underscore (_), Dot (.) များကို Space သို့ ပြောင်းမည်
+    name = re.sub(r'[\._]', ' ', name)
+
+    # 3. mmsub, mmsubtitle, sub, myanmar sub စသည်တို့ကို ဖြုတ်ပါ (Case-insensitive)
+    unwanted_patterns = [
+        r'\bmmsubtitles?\b', r'\bmmsubs?\b', r'\bmyanmar\s*sub\b', 
+        r'\bsubtitles?\b', r'\[mmsub\]', r'\(mmsub\)', r'\bsub\b'
+    ]
+    for pattern in unwanted_patterns:
+        name = re.sub(pattern, '', name, flags=re.IGNORECASE)
+
+    # 4. Episode နံပါတ်များ မကပ်စေရန် Space ခြားပေးခြင်း
+    # ဥပမာ - MovieEp01 -> Movie Ep 01, SeriesE05 -> Series E 05, Ep-01 -> Ep 01
+    name = re.sub(r'([a-zA-Z]+)(ep|e|sp)(\d+)', r'\1 \2 \3', name, flags=re.IGNORECASE)
+    name = re.sub(r'\b(ep|e|sp)(\d+)\b', r'\1 \2', name, flags=re.IGNORECASE)
+    name = re.sub(r'(\d+)(ep|e|sp)', r'\1 \2', name, flags=re.IGNORECASE)
+    name = re.sub(r'[-_]+', ' ', name)
+
+    # 5. မလိုလားအပ်သော Special Characters များကို ရှင်းထုတ်ခြင်း
+    name = re.sub(r'[\\/*?:"<>|\[\]()]', ' ', name)
+
+    # 6. Space မျိုးစုံကို Single Space ပြောင်းခြင်း
+    name = re.sub(r'\s+', ' ', name).strip()
+
+    # 7. စာလုံးတိုင်း၏ ရှေ့စာလုံးကို အကြီးပြောင်းခြင်း (Title Case)
+    name = name.title()
+
+    # EP / E / SP စာလုံးများကို ပုံစံမှန် အက္ခရာကြီး ပြောင်းပေးခြင်း
+    name = re.sub(r'\bEp\b', 'Ep', name, flags=re.IGNORECASE)
+    name = re.sub(r'\bE\b', 'E', name, flags=re.IGNORECASE)
+
+    return f"{name}{ext if ext else '.mp4'}"
+
 
 def extract_file_name(message) -> str:
     """Telegram Message မှ Video/Document ရဲ့ File Name ကို ရှာဖွေထုတ်ယူပေးသည့် Function"""
@@ -41,19 +86,18 @@ def extract_file_name(message) -> str:
                     file_name = attr.file_name
                     break
 
-    # Caption သို့မဟုတ် Text မှ ရှာခြင်း (အထူးသဖြင့် Episode နာမည်များအတွက်)
+    # Caption သို့မဟုတ် Text မှ ရှာခြင်း
     if not file_name and message.text:
         first_line = message.text.split('\n')[0].strip()
         if first_line and len(first_line) < 100:
-            # Safe filename ဖြစ်အောင် ပြုလုပ်ခြင်း
-            file_name = re.sub(r'[\\/*?:"<>|]', "", first_line) + ".mp4"
+            file_name = first_line
 
     # ဖိုင်နာမည် လုံးဝ မရှိပါက Default ပေးခြင်း
     if not file_name:
         file_name = "video.mp4"
 
-    # Special characters များကြောင့် URL Link မပျက်စေရန် Clean လုပ်ခြင်း
-    return file_name.strip()
+    # Clean & Format ပြုလုပ်ခြင်း
+    return clean_and_format_title(file_name)
 
 
 # --- [ TELEGRAM BOT SECTION ] ---
