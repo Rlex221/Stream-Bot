@@ -76,33 +76,35 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         if ep_match:
             ep_number = str(int(ep_match.group(1))).zfill(2)
 
-    # 3. Year (ခုနှစ်) ရှာဖွေခြင်း (ဥပမာ 2026, 2024)
+    # 3. Year (ခုနှစ်) ရှာဖွေခြင်း
     year_match = re.search(r'\b(19\d{2}|20\d{2})\b', full_text)
     year_str = f"({year_match.group(1)})" if year_match else ""
 
     # 4. TITLE စိစစ်ထုတ်ယူခြင်း
     clean_title = ""
 
-    # မလိုအပ်သော Ads, Channel, Quality စာလုံးများ Filter လုပ်ခြင်း (crd/credit ပါ ထည့်သွင်းထားသည်)
-    unwanted_patterns = [
-        r'http\S+', r'www\.\S+', r'@\w+', r't\.me/\S+',
-        r'translation\s*-\s*\w+', r'uploader\s*-\s*\w+', r'subbed\s*by\s*\w+',
-        r'\bcrawler\b', r'\bjoined\b', r'\bjoin\b', r'\bkara\b', r'\bsu\b', r'\bmw\b',
-        r'\bcrd\b', r'\bcredit\b', # Crd / Credit ရှင်းထုတ်ရန်
-        r'\bmyanmar\s*sub(?:titles?)?\b', r'\bmmsub(?:titles?)?\b', r'\bsubtitles?\b', r'\bsub\b',
-        r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b360p?\b', r'\b4k\b', r'\bhd\b', r'\bfhd\b', r'\bhq\b',
-        r'\bweb\s*dl\b', r'\bweb-dl\b', r'\bwebrip\b', r'\bbluray\b', r'\bhdrip\b',
-        r'\bx264\b', r'\bx265\b', r'\baac\b', r'\besub\b', r'\bdecensored\b', r'\bcensored\b',
-        r'\btrue\s*homie\b', r'\bhomie\b', r'\btamil\b', r'\bmalayalam\b', r'\benglish\b', r'\braw\b',
-        r'\b19\d{2}\b', r'\b20\d{2}\b' # Year ကို Title ထဲမှ ဖျက်ပြီး သီးသန့်ပြန်ဆက်မည်
-    ]
+    # A. Caption/Text ထဲမှ English Title များကို ဦးစားပေး ရှာဖွေခြင်း (ဥပမာ - "Falling into your Smile")
+    lines = full_text.split('\n')
+    for line in lines:
+        line_clean = re.sub(r'http\S+|t\.me/\S+|#\w+|@\w+', '', line).strip()
+        # "EP - 2" သို့မဟုတ် "Episode 2" ကဲ့သို့ စာသားများကို Title ထဲမပါအောင် ဖယ်ထုတ်ခြင်း
+        line_clean = re.sub(r'(?:ep|episode|e|အပိုင်း)\s*[\(\[\{:._-]?\s*\d{1,3}\b.*', '', line_clean, flags=re.IGNORECASE).strip()
+        
+        # English စာလုံး အနည်းဆုံး ၂ လုံးပါဝင်ပြီး Crd, Join, Main စသည်တို့မဟုတ်သော Line ကို Title အဖြစ်ယူမည်
+        eng_words = re.findall(r'[a-zA-Z]{2,}', line_clean)
+        filtered_words = [w for w in eng_words if w.lower() not in ['crd', 'credit', 'channel', 'link', 'main', 'join', 'sub', 'mmsub', 'video']]
+        
+        if len(filtered_words) >= 2:
+            clean_title = " ".join(filtered_words).title()
+            break
 
-    # Code Name (ဥပမာ ATID-574) ရှာဖွေခြင်း
-    code_match = re.search(r'\b([a-zA-Z]{2,5}[-_]?\d{3,4})\b', full_text)
-    if code_match:
-        clean_title = code_match.group(1).upper().replace("_", "-")
+    # B. အထက်ပါနည်းဖြင့် မရပါက Code Name (ဥပမာ ATID-574) ရှာဖွေခြင်း
+    if not clean_title:
+        code_match = re.search(r'\b([a-zA-Z]{2,5}[-_]?\d{3,4})\b', full_text)
+        if code_match:
+            clean_title = code_match.group(1).upper().replace("_", "-")
 
-    # Hashtag မှ Title ယူခြင်း (crd / credit tag များကို ပယ်မည်)
+    # C. Hashtag မှ Title ယူခြင်း (Crd, 1080p Tag များကို ပယ်သည်)
     if not clean_title:
         hashtags = re.findall(r'#(\w+)', full_text)
         ignore_tags = ['1080p', '720p', '480p', '4k', 'hd', 'mmsub', 'sub', 'raw', 'crd', 'credit']
@@ -112,27 +114,12 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
                 clean_title = tag_spaced.replace("_", " ").strip().title()
                 break
 
-    # မူရင်း ဖိုင်နာမည် / Caption မှ Title ရွေးထုတ်ခြင်း
-    if not clean_title:
-        target_text = raw_name if (raw_name and raw_name.lower() not in ["video", "file", "movie", "video_file", "crd", "crd.mp4"]) else f"{caption_text} {fwd_title}"
-        
-        temp_text = target_text
-        for pattern in unwanted_patterns:
-            temp_text = re.sub(pattern, ' ', temp_text, flags=re.IGNORECASE)
-
-        temp_text = re.sub(r'[\u1000-\u109F]+', ' ', temp_text) # မြန်မာစာ ရှင်းထုတ်မည်
-        temp_text = re.sub(r'[^a-zA-Z0-9\s]', ' ', temp_text)
-        
-        words = temp_text.split()
-        dedup_words = []
-        for w in words:
-            if len(w) > 1 and w.lower() not in ["the", "and", "for", "with", "ep"]:
-                dedup_words.append(w)
-                if len(dedup_words) >= 6: # Title အပြည့်အစုံရစေရန် စာလုံးရေတိုးထားသည်
-                    break
-        
-        if dedup_words:
-            clean_title = " ".join(dedup_words).strip().title()
+    # D. raw_name (Filename) ထဲမှ ရှာဖွေခြင်း
+    if not clean_title and raw_name and raw_name.lower() not in ["video", "file", "movie", "crd", "crd.mp4"]:
+        eng_words = re.findall(r'[a-zA-Z]{2,}', raw_name)
+        filtered_words = [w for w in eng_words if w.lower() not in ['crd', 'credit', 'video', 'mp4', 'mkv']]
+        if filtered_words:
+            clean_title = " ".join(filtered_words).title()
 
     if not clean_title or clean_title.lower() in ["video", "file", "movie", "crd"]:
         clean_title = "Media"
