@@ -31,7 +31,9 @@ def myanmar_to_english_digits(text: str) -> str:
     return text.translate(trans_table)
 
 def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str = "") -> str:
-    """ဘယ် Movie/Series ဖြစ်ဖြစ် Hashtag များနှင့် Quality Tags များကို စိစစ်ပြီး Title သန့်ပေးမည့် Function"""
+    """
+    ဘယ် Channel က Movie / Series / Code ဖိုင်ဖြစ်ဖြစ် Title မှန်ကန်စေရန် စိစစ်ပေးသည့် Function
+    """
     if not raw_name:
         raw_name = ""
 
@@ -39,97 +41,111 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
     caption_text = myanmar_to_english_digits(caption_text)
     fwd_title = myanmar_to_english_digits(fwd_title)
 
-    # 1. Extension မူရင်းအတိုင်း ခွဲထုတ်မည် (.mp4, .mkv, .avi စသည်)
+    # 1. Extension သီးသန့် ခွဲထုတ်ခြင်း (.mp4, .mkv စသည်)
     ext = ".mp4"
     if "." in raw_name:
         parts = raw_name.rsplit(".", 1)
         if len(parts[1]) <= 4:
             raw_name, ext = parts[0], f".{parts[1]}"
 
-    # မူရင်း File Name ရှင်းရှင်းလင်းလင်း မပါပါက Forward Channel Name ကို သုံးမည်
-    base_check = raw_name.lower().strip()
-    if (not base_check or base_check in ["video", "file", "movie", "video_file"]) and fwd_title:
-        full_text = f"{fwd_title} {caption_text}"
-    else:
-        full_text = f"{raw_name} {caption_text}"
+    # အထွေထွေ စာသား အားလုံး ပေါင်းစပ်ခြင်း
+    full_text = f"{raw_name} {caption_text} {fwd_title}"
 
-    # 2. Season နှင့် Episode ဂဏန်းများ ရှာထုတ်မည်
+    # 2. Episode နှင့် Season ဂဏန်းများကို တိကျစွာ ရှာထုတ်ခြင်း
     ep_number = ""
     season_number = ""
 
+    # S01E02 သို့မဟုတ် S1 E2
     s_ep_match = re.search(r'\bs(\d{1,2})\s*e(\d{1,3})\b', full_text, re.IGNORECASE)
     if s_ep_match:
         season_number = str(int(s_ep_match.group(1))).zfill(2)
         ep_number = str(int(s_ep_match.group(2))).zfill(2)
     else:
+        # Ep 01, Episode 1, E-01, အပိုင်း ၁
         ep_match = re.search(r'(?:ep|episode|e|အပိုင်း)\s*[\(\[\{:._-]?\s*(\d{1,3})\b', full_text, re.IGNORECASE)
         if ep_match:
             ep_number = str(int(ep_match.group(1))).zfill(2)
 
-    # Movie Year ရှာမည်
+    # Year (ဥပမာ 2026, 2024)
     year_match = re.search(r'\b(19\d{2}|20\d{2})\b', full_text)
     year_str = f"({year_match.group(1)})" if year_match else ""
 
-    # 3. TITLE ကို ဦးစားပေး စနစ်ဖြင့် ရှာဖွေမည်
+    # 3. TITLE ရှာဖွေရေး Logic (ဦးစားပေး အစဉ်လိုက်)
     clean_title = ""
 
-    # မလိုအပ်သော Tag / Quality စာလုံးများ
-    ignore_tags = [
-        '1080p', '720p', '480p', '360p', '4k', 'hd', 'fhd', 'bluray',
-        'webrip', 'webdl', 'mmsub', 'sub', 'engsub', 'esub', 'raw'
+    # မလိုအပ်သော စာသားများ၊ Site Ads များနှင့် Quality Tags များ
+    unwanted_patterns = [
+        r'http\S+', r'www\.\S+', r'@\w+', r't\.me/\S+',
+        r'translation\s*-\s*\w+', r'uploader\s*-\s*\w+', r'subbed\s*by\s*\w+',
+        r'\bcrawler\b', r'\bjoined\b', r'\bjoin\b', r'\bkara\b', r'\bsu\b', r'\bmw\b',
+        r'\bmyanmar\s*sub(?:titles?)?\b', r'\bmmsub(?:titles?)?\b', r'\bsubtitles?\b', r'\bsub\b',
+        r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b360p?\b', r'\b4k\b', r'\bhd\b', r'\bfhd\b',
+        r'\bweb\s*dl\b', r'\bweb-dl\b', r'\bwebrip\b', r'\bbluray\b', r'\bhdrip\b',
+        r'\bx264\b', r'\bx265\b', r'\baac\b', r'\besub\b', r'\bdecensored\b', r'\bcensored\b',
+        r'\btrue\s*homie\b', r'\btamil\b', r'\benglish\b', r'\braw\b'
     ]
 
-    # A. Hashtags ထဲမှ Quality မဟုတ်သော Title Hashtag ကို ရှာမည် (ဥပမာ #BlossomsOfPower)
-    hashtags = re.findall(r'#(\w+)', full_text)
-    for tag in hashtags:
-        if tag.lower() not in ignore_tags:
-            # CamelCase စာလုံးများကို ခွဲမည် (BlossomsOfPower -> Blossoms Of Power)
-            tag_spaced = re.sub(r'([a-z])([A-Z])', r'\1 \2', tag)
-            clean_title = tag_spaced.replace("_", " ").strip().title()
-            break
+    # A. Code Name များ ရှာဖွေခြင်း (ဥပမာ ATID-574, IPX-123, SSIS-001)
+    code_match = re.search(r'\b([a-zA-Z]{2,5}[-_]?\d{3,4})\b', full_text)
+    if code_match:
+        clean_title = code_match.group(1).upper().replace("_", "-")
 
-    # B. Hashtag မပါပါက မူရင်း Code ပါ unwanted_patterns ဖြင့် crawler, joined စသည်တို့ကို ဖျက်ထုတ်မည်
+    # B. Hashtag ပါဝင်ပါက Title အဖြစ် ယူခြင်း (ဥပမာ #Thiraivi)
     if not clean_title:
-        unwanted_patterns = [
-            r'translation\s*-\s*\w+', r'uploader\s*-\s*\w+', r'subbed\s*by\s*\w+',
-            r'\bcrawler\b', r'\bjoined\b', r'\bjoin\b', r'\bkara\b', r'\bsu\b', r'\bmw\b',
-            r'\bmyanmar\s*sub(?:titles?)?\b', r'\bmmsub(?:titles?)?\b', r'\bsubtitles?\b', r'\bsub\b',
-            r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b360p?\b', r'\b4k\b', r'\bhd\b',
-            r'\bweb\s*dl\b', r'\bweb-dl\b', r'\bwebrip\b', r'\bbluray\b', r'\bhdrip\b',
-            r'\bx264\b', r'\bx265\b', r'\baac\b', r'\besub\b', r'http\S+', r'www\.\S+', r'@\w+'
-        ]
+        hashtags = re.findall(r'#(\w+)', full_text)
+        ignore_tags = ['1080p', '720p', '480p', '4k', 'hd', 'mmsub', 'sub', 'raw']
+        for tag in hashtags:
+            if tag.lower() not in ignore_tags:
+                tag_spaced = re.sub(r'([a-z])([A-Z])', r'\1 \2', tag)
+                clean_title = tag_spaced.replace("_", " ").strip().title()
+                break
+
+    # C. တကယ်လို့ File Name ရှိပြီး Video/File မဟုတ်ရင် Filter လုပ်ပြီး Title ထုတ်ခြင်း
+    if not clean_title:
+        base_name = raw_name.strip()
+        if base_name and base_name.lower() not in ["video", "file", "movie", "video_file"]:
+            temp_name = base_name
+            for pattern in unwanted_patterns:
+                temp_name = re.sub(pattern, ' ', temp_name, flags=re.IGNORECASE)
+            temp_name = re.sub(r'[\u1000-\u109F]+', ' ', temp_name)
+            temp_name = re.sub(r'[^a-zA-Z0-9\s]', ' ', temp_name)
+            
+            words = temp_name.split()
+            if words:
+                clean_title = " ".join(words).strip().title()
+
+    # D. အထက်ပါနည်းများ မရပါက Caption / Forward Channel Name မှ စာလုံးများကို Filter လုပ်ယူခြင်း
+    if not clean_title:
+        target_text = caption_text if caption_text else fwd_title
+        temp_text = target_text
         
-        temp_text = full_text
         for pattern in unwanted_patterns:
             temp_text = re.sub(pattern, ' ', temp_text, flags=re.IGNORECASE)
 
-        # မြန်မာစာသားများနှင့် အပိုသင်္ကေတများ ဖျက်မည်
-        temp_text = re.sub(r'[\u1000-\u109F]+', ' ', temp_text)
-        temp_text = re.sub(r'[^a-zA-Z\s]', ' ', temp_text)
+        temp_text = re.sub(r'[\u1000-\u109F]+', ' ', temp_text) # မြန်မာစာ ဖျက်မည်
+        temp_text = re.sub(r'[^a-zA-Z0-9\s]', ' ', temp_text)
         
-        # ထပ်နေသော စာလုံးများ ရှင်းထုတ်မည်
         words = temp_text.split()
-        seen = set()
         dedup_words = []
         for w in words:
-            w_lower = w.lower()
-            if w_lower in ["the", "a", "an"] and len(dedup_words) > 0:
-                continue
-            if w_lower not in seen and w_lower not in ignore_tags:
-                seen.add(w_lower)
+            if len(w) > 1 and w.lower() not in ["the", "and", "for", "with"]:
                 dedup_words.append(w)
-                
-        clean_title = " ".join(dedup_words).strip().title()
+                if len(dedup_words) >= 4:  # စာလုံး အများဆုံး ၄ လုံးအထိပဲ Title အဖြစ်ယူမည်
+                    break
+        
+        if dedup_words:
+            clean_title = " ".join(dedup_words).strip().title()
 
+    # မည်သို့မျှ မရှိပါက Default "Movie" ဟု သတ်မှတ်မည်
     if not clean_title or clean_title.lower() in ["video", "file", "movie"]:
         clean_title = "Movie"
 
-    # 4. Output Format ကို စနစ်တကျ ပြန်လည် ပေါင်းစပ်ခြင်း
+    # 4. Final Formatting ပြန်လည်ပေါင်းစပ်ခြင်း
     if season_number and ep_number:
         final_name = f"{clean_title} S{season_number} Ep {ep_number}"
     elif ep_number:
         final_name = f"{clean_title} Ep {ep_number}"
-    elif year_str:
+    elif year_str and year_str not in clean_title:
         final_name = f"{clean_title} {year_str}"
     else:
         final_name = clean_title
@@ -138,7 +154,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
 
 
 def extract_file_name(message) -> str:
-    """Telegram Message မှ File Name၊ Forward Info နှင့် Caption ကို တွဲဖက်ထုတ်ယူပေးသည့် Function"""
+    """Telegram Message မှ File Name၊ Forward Info နှင့် Caption ကို စိစစ်ထုတ်ယူပေးသည့် Function"""
     file_name = None
     caption = message.text or message.caption or ""
     fwd_title = ""
@@ -152,12 +168,14 @@ def extract_file_name(message) -> str:
             last_name = message.forward.sender.last_name or ""
             fwd_title = f"{first_name} {last_name}".strip()
 
+    # Document File Name စစ်ဆေးခြင်း
     if message.document and message.document.attributes:
         for attr in message.document.attributes:
             if hasattr(attr, 'file_name') and attr.file_name:
                 file_name = attr.file_name
                 break
 
+    # Video Attributes စစ်ဆေးခြင်း
     if not file_name and message.video:
         if hasattr(message.video, 'attributes'):
             for attr in message.video.attributes:
