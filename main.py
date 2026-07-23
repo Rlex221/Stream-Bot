@@ -31,9 +31,7 @@ def myanmar_to_english_digits(text: str) -> str:
     return text.translate(trans_table)
 
 def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str = "") -> str:
-    """
-    ဘယ် Movie/Series ဖြစ်ဖြစ် Hashtag များနှင့် Quality Tags များကို စိစစ်ပြီး Title သန့်ပေးမည့် Function
-    """
+    """ဘယ် Movie/Series ဖြစ်ဖြစ် Hashtag များနှင့် Quality Tags များကို စိစစ်ပြီး Title သန့်ပေးမည့် Function"""
     if not raw_name:
         raw_name = ""
 
@@ -48,11 +46,9 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         if len(parts[1]) <= 4:
             raw_name, ext = parts[0], f".{parts[1]}"
 
-    # File Name သီးသန့်ရှိမရှိ စစ်ဆေးခြင်း
-    has_valid_filename = bool(raw_name and raw_name.lower() not in ["video", "file", "movie", "video_file"])
-
-    # မူရင်း File Name မရှိရင် Forward Channel Name ကို ဦးစားပေး အသုံးပြုမည်
-    if not has_valid_filename and fwd_title:
+    # မူရင်း File Name ရှင်းရှင်းလင်းလင်း မပါပါက Forward Channel Name ကို သုံးမည်
+    base_check = raw_name.lower().strip()
+    if (not base_check or base_check in ["video", "file", "movie", "video_file"]) and fwd_title:
         full_text = f"{fwd_title} {caption_text}"
     else:
         full_text = f"{raw_name} {caption_text}"
@@ -83,33 +79,16 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         'webrip', 'webdl', 'mmsub', 'sub', 'engsub', 'esub', 'raw'
     ]
 
-    # A. မူရင်း File Name ရှိပါက ၎င်းကို အဓိက Title အဖြစ် စတင်သုံးစွဲမည်
-    if has_valid_filename:
-        clean_title = raw_name.replace(".", " ").replace("_", " ").strip()
-    # B. မူရင်း File Name မရှိဘဲ Forward Channel Title ရှိရင် Forward Channel Title ကို ယူမည်
-    elif fwd_title:
-        fwd_clean = re.sub(r'https?://\S+|www\.\S+|@\w+', '', fwd_title)
-        fwd_clean = re.sub(r'[\u1000-\u109F]+', ' ', fwd_clean)
-        fwd_clean = re.sub(r'[^\w\s\(\)\-]', ' ', fwd_clean).strip()
-        if fwd_clean:
-            clean_title = fwd_clean
+    # A. Hashtags ထဲမှ Quality မဟုတ်သော Title Hashtag ကို ရှာမည် (ဥပမာ #BlossomsOfPower)
+    hashtags = re.findall(r'#(\w+)', full_text)
+    for tag in hashtags:
+        if tag.lower() not in ignore_tags:
+            # CamelCase စာလုံးများကို ခွဲမည် (BlossomsOfPower -> Blossoms Of Power)
+            tag_spaced = re.sub(r'([a-z])([A-Z])', r'\1 \2', tag)
+            clean_title = tag_spaced.replace("_", " ").strip().title()
+            break
 
-    # C. JAV/Code များ ရှာဖွေခြင်း (ဥပမာ ATID-574, IPX-123)
-    if not clean_title:
-        code_match = re.search(r'\b([a-zA-Z]{2,5}[-_]?\d{3,4})\b', full_text)
-        if code_match:
-            clean_title = code_match.group(1).upper()
-
-    # D. Hashtags ထဲမှ Quality မဟုတ်သော Title Hashtag ကို ရှာမည် (ဥပမာ #BlossomsOfPower)
-    if not clean_title:
-        hashtags = re.findall(r'#(\w+)', full_text)
-        for tag in hashtags:
-            if tag.lower() not in ignore_tags:
-                tag_spaced = re.sub(r'([a-z])([A-Z])', r'\1 \2', tag)
-                clean_title = tag_spaced.replace("_", " ").strip().title()
-                break
-
-    # E. Hashtag မပါပါက သို့မဟုတ် မိပါက အခြား အင်္ဂလိပ် Title ကို ရှာထုတ်မည်
+    # B. Hashtag မပါပါက မူရင်း Code ပါ unwanted_patterns ဖြင့် crawler, joined စသည်တို့ကို ဖျက်ထုတ်မည်
     if not clean_title:
         unwanted_patterns = [
             r'translation\s*-\s*\w+', r'uploader\s*-\s*\w+', r'subbed\s*by\s*\w+',
@@ -126,7 +105,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
 
         # မြန်မာစာသားများနှင့် အပိုသင်္ကေတများ ဖျက်မည်
         temp_text = re.sub(r'[\u1000-\u109F]+', ' ', temp_text)
-        temp_text = re.sub(r'[^a-zA-Z0-9\s]', ' ', temp_text)
+        temp_text = re.sub(r'[^a-zA-Z\s]', ' ', temp_text)
         
         # ထပ်နေသော စာလုံးများ ရှင်းထုတ်မည်
         words = temp_text.split()
@@ -150,7 +129,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         final_name = f"{clean_title} S{season_number} Ep {ep_number}"
     elif ep_number:
         final_name = f"{clean_title} Ep {ep_number}"
-    elif year_str and year_str not in clean_title:
+    elif year_str:
         final_name = f"{clean_title} {year_str}"
     else:
         final_name = clean_title
@@ -159,12 +138,12 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
 
 
 def extract_file_name(message) -> str:
-    """Telegram Message မှ File Name, Forward Title နှင့် Caption ကို တွဲဖက်ထုတ်ယူပေးသည့် Function"""
+    """Telegram Message မှ File Name၊ Forward Info နှင့် Caption ကို တွဲဖက်ထုတ်ယူပေးသည့် Function"""
     file_name = None
     caption = message.text or message.caption or ""
     fwd_title = ""
 
-    # Forward Message မှ Channel Name / Sender Name စစ်ဆေးယူခြင်း
+    # Forward Message မှ Channel/Chat Name ရယူခြင်း
     if message.forward:
         if message.forward.chat:
             fwd_title = message.forward.chat.title or ""
@@ -173,7 +152,6 @@ def extract_file_name(message) -> str:
             last_name = message.forward.sender.last_name or ""
             fwd_title = f"{first_name} {last_name}".strip()
 
-    # Telegram File ရဲ့ Original Name ရှိမရှိ စစ်ဆေးခြင်း
     if message.document and message.document.attributes:
         for attr in message.document.attributes:
             if hasattr(attr, 'file_name') and attr.file_name:
