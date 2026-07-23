@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import base64
 from urllib.parse import quote, unquote
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse
@@ -20,6 +21,18 @@ app = FastAPI(title="Telegram Video Streamer")
 
 
 # --- [ HELPER FUNCTIONS ] ---
+
+def encode_stream_id(chat_id: int, message_id: int) -> str:
+    """chat_id နဲ့ message_id ကို URL ထဲမှာ မမြင်ရအောင် Encoded String အဖြစ် ပြောင်းပေးသည့် Function"""
+    raw_str = f"{chat_id}:{message_id}"
+    return base64.urlsafe_b64encode(raw_str.encode()).decode().strip("=")
+
+def decode_stream_id(stream_id: str) -> tuple[int, int]:
+    """Encoded String မှ chat_id နဲ့ message_id ကို မူရင်းအတိုင်း ပြန်ထုတ်ပေးသည့် Function"""
+    padding = '=' * (4 - (len(stream_id) % 4))
+    decoded_str = base64.urlsafe_b64decode(stream_id + padding).decode()
+    chat_id_str, msg_id_str = decoded_str.split(":")
+    return int(chat_id_str), int(msg_id_str)
 
 def myanmar_to_english_digits(text: str) -> str:
     """မြန်မာဂဏန်းများကို အင်္ဂလိပ်ဂဏန်းသို့ ပြောင်းပေးသည့် Function"""
@@ -202,10 +215,14 @@ async def video_handler(event):
         chat_id = event.chat_id
         message_id = event.message.id
         
+        # chat_id နဲ့ message_id ကို ID သီးသန့် Encode ပြုလုပ်ခြင်း
+        stream_id = encode_stream_id(chat_id, message_id)
+        
         raw_file_name = extract_file_name(event.message)
         safe_file_name = quote(raw_file_name)
         
-        stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}/{safe_file_name}"
+        # Link ပုံစံ: SERVER_URL/stream/STREAM_ID/FILE_NAME
+        stream_link = f"{SERVER_URL}/stream/{stream_id}/{safe_file_name}"
         
         response_text = (
             f"🔗 **သင့်ဗီဒီယိုအတွက် Stream Link ရပါပြီ:**\n\n"
@@ -262,9 +279,15 @@ async def tg_file_streamer(client, file, offset, limit):
 async def root():
     return {"status": "ok", "message": "Telegram Streaming Server is running!"}
 
-@app.get("/stream/{chat_id}/{message_id}/{file_name:path}")
-async def stream_video(chat_id: int, message_id: int, file_name: str, request: Request):
+@app.get("/stream/{stream_id}/{file_name:path}")
+async def stream_video(stream_id: str, file_name: str, request: Request):
     try:
+        # Encoded string မှ chat_id နှင့် message_id ကို ပြန်ဖြည်ယူခြင်း
+        try:
+            chat_id, message_id = decode_stream_id(stream_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid stream ID format")
+
         message = await bot.get_messages(chat_id, ids=message_id)
         if not message:
             raise HTTPException(status_code=404, detail="Message not found")
@@ -316,6 +339,8 @@ async def stream_video(chat_id: int, message_id: int, file_name: str, request: R
                 headers=headers
             )
             
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
