@@ -4,7 +4,6 @@ import re
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse
 from telethon import TelegramClient, events
-from telethon.tl.types import DocumentAttributeFilename
 import uvicorn
 
 # --- [ CONFIGURATIONS ] ---
@@ -36,7 +35,15 @@ async def video_handler(event):
         message_id = event.message.id
         
         # Cloud Domain ဖြင့် Link ထုတ်ပေးခြင်း
-        stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}"
+        filename="video"
+        if event.message.document:
+            from telethon.tl.types import DocumentAttributeFilename
+            for a in event.message.document.attributes:
+                if isinstance(a, DocumentAttributeFilename):
+                    filename=a.file_name
+                    break
+        from urllib.parse import quote
+        stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}/{quote(filename)}"
         
         response_text = (
             f"🔗 **သင့်ဗီဒီယိုအတွက် Stream Link ရပါပြီ:**\n\n"
@@ -92,36 +99,16 @@ async def tg_file_streamer(client, file, offset, limit):
 async def root():
     return {"status": "ok", "message": "Telegram Streaming Server is running!"}
 
-@app.get("/stream/{chat_id}/{message_id}")
-async def stream_video(chat_id: int, message_id: int, request: Request):
+@app.get("/stream/{chat_id}/{message_id}/{filename:path}")
+async def stream_video(chat_id: int, message_id: int, filename: str, request: Request):
     try:
         message = await bot.get_messages(chat_id, ids=message_id)
         file = message.video or message.document
         if not file:
             raise HTTPException(status_code=404, detail="Media not found")
         
-        
         file_size = file.size
         mime_type = file.mime_type or "video/mp4"
-
-        original_name = "video.mp4"
-        if message.document:
-            for attr in message.document.attributes:
-                if isinstance(attr, DocumentAttributeFilename):
-                    original_name = attr.file_name
-                    break
-        ext=os.path.splitext(original_name)[1] or ".mp4"
-        base=os.path.splitext(original_name)[0].replace("."," ").replace("_"," ")
-        y=re.search(r"(19|20)\d{2}",base)
-        year=y.group(0) if y else ""
-        e=re.search(r"(?:S\d{1,2}E|EP\s*|E)(\d{1,3})",base,re.I)
-        ep=e.group(1) if e else ""
-        title=re.sub(r"(19|20)\d{2}","",base)
-        title=re.sub(r"S\d{1,2}E\d{1,3}|EP\s*\d+|E\d+","",title,flags=re.I)
-        title=re.sub(r"\b(1080p|720p|480p|2160p|WEB.?DL|WEBRip|BluRay|HDRip|x264|x265|HEVC|AAC|NF|AMZN)\b","",title,flags=re.I)
-        title=re.sub(r"\s+"," ",title).strip()
-        stream_filename=f"{title} {year} E{ep}{ext}" if ep and year else (f"{title} E{ep}{ext}" if ep else (f"{title} {year}{ext}" if year else f"{title}{ext}"))
-
         range_header = request.headers.get("range")
         
         if range_header:
@@ -139,7 +126,6 @@ async def stream_video(chat_id: int, message_id: int, request: Request):
                 "Content-Length": str(content_length),
                 "Content-Type": mime_type,
                 "Cache-Control": "public, max-age=3600",
-                "Content-Disposition": f'inline; filename="{stream_filename}"',
             }
             
             return StreamingResponse(
@@ -153,7 +139,6 @@ async def stream_video(chat_id: int, message_id: int, request: Request):
                 "Content-Length": str(file_size),
                 "Content-Type": mime_type,
                 "Cache-Control": "public, max-age=3600",
-                "Content-Disposition": f'inline; filename="{stream_filename}"',
             }
             return StreamingResponse(
                 tg_file_streamer(bot, file, 0, file_size - 1),
