@@ -30,7 +30,9 @@ def myanmar_to_english_digits(text: str) -> str:
 
 def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str = "") -> str:
     """
-    ဘယ် Channel က Movie / Series / Code ဖိုင်ဖြစ်ဖြစ် Title တိကျ မှန်ကန်စေရန် စိစစ်ပေးမည့် Function
+    Movies: Title + Year
+    Series: Title + (Year) + Season/Ep No 
+    အတိအကျ ထွက်ရှိစေရန် စိစစ်ပေးသည့် Function
     """
     if not raw_name:
         raw_name = ""
@@ -46,10 +48,9 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         if len(parts[1]) <= 4:
             raw_name, ext = parts[0], f".{parts[1]}"
 
-    # အထွေထွေ စာသား အားလုံး ပေါင်းစပ်ခြင်း
     full_text = f"{raw_name} {caption_text} {fwd_title}"
 
-    # 2. Episode နှင့် Season ဂဏန်းများကို တိကျစွာ ရှာထုတ်ခြင်း
+    # 2. Season နှင့် Episode ဂဏန်းများ ရှာဖွေခြင်း
     ep_number = ""
     season_number = ""
 
@@ -62,14 +63,14 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         if ep_match:
             ep_number = str(int(ep_match.group(1))).zfill(2)
 
-    # Year (ဥပမာ 2026, 2024)
+    # 3. Year (ခုနှစ်) ရှာဖွေခြင်း (ဥပမာ 2026, 2024)
     year_match = re.search(r'\b(19\d{2}|20\d{2})\b', full_text)
     year_str = f"({year_match.group(1)})" if year_match else ""
 
-    # 3. TITLE ရှာဖွေရေး Logic
+    # 4. TITLE စိစစ်ထုတ်ယူခြင်း
     clean_title = ""
 
-    # မလိုအပ်သော စာသားများ၊ Site Ads များနှင့် Quality Tags များ
+    # မလိုအပ်သော Ads, Channel, Quality စာလုံးများ Filter လုပ်ခြင်း
     unwanted_patterns = [
         r'http\S+', r'www\.\S+', r'@\w+', r't\.me/\S+',
         r'translation\s*-\s*\w+', r'uploader\s*-\s*\w+', r'subbed\s*by\s*\w+',
@@ -79,15 +80,15 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         r'\bweb\s*dl\b', r'\bweb-dl\b', r'\bwebrip\b', r'\bbluray\b', r'\bhdrip\b',
         r'\bx264\b', r'\bx265\b', r'\baac\b', r'\besub\b', r'\bdecensored\b', r'\bcensored\b',
         r'\btrue\s*homie\b', r'\bhomie\b', r'\btamil\b', r'\bmalayalam\b', r'\benglish\b', r'\braw\b',
-        r'\b19\d{2}\b', r'\b20\d{2}\b' # Year ဂဏန်းများကို Title ထဲမှ ခေတ္တဖျက်မည်
+        r'\b19\d{2}\b', r'\b20\d{2}\b' # Year ကို Title ထဲမှ ဖျက်ပြီး သီးသန့်ပြန်ဆက်မည်
     ]
 
-    # A. Code Name များ ရှာဖွေခြင်း (ဥပမာ ATID-574, IPX-123)
+    # Code Name (ဥပမာ ATID-574) ရှာဖွေခြင်း
     code_match = re.search(r'\b([a-zA-Z]{2,5}[-_]?\d{3,4})\b', full_text)
     if code_match:
         clean_title = code_match.group(1).upper().replace("_", "-")
 
-    # B. Hashtag ပါဝင်ပါက Title အဖြစ် ယူခြင်း
+    # Hashtag မှ Title ယူခြင်း
     if not clean_title:
         hashtags = re.findall(r'#(\w+)', full_text)
         ignore_tags = ['1080p', '720p', '480p', '4k', 'hd', 'mmsub', 'sub', 'raw']
@@ -97,7 +98,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
                 clean_title = tag_spaced.replace("_", " ").strip().title()
                 break
 
-    # C. File Name / Caption မှ အမှန်တကယ် Title ကို ရွေးထုတ်ခြင်း
+    # မူရင်း ဖိုင်နာမည် / Caption မှ Title ရွေးထုတ်ခြင်း
     if not clean_title:
         target_text = raw_name if (raw_name and raw_name.lower() not in ["video", "file", "movie", "video_file"]) else f"{caption_text} {fwd_title}"
         
@@ -105,7 +106,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         for pattern in unwanted_patterns:
             temp_text = re.sub(pattern, ' ', temp_text, flags=re.IGNORECASE)
 
-        temp_text = re.sub(r'[\u1000-\u109F]+', ' ', temp_text) # မြန်မာစာ ဖျက်မည်
+        temp_text = re.sub(r'[\u1000-\u109F]+', ' ', temp_text) # မြန်မာစာ ရှင်းထုတ်မည်
         temp_text = re.sub(r'[^a-zA-Z0-9\s]', ' ', temp_text)
         
         words = temp_text.split()
@@ -120,15 +121,28 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
             clean_title = " ".join(dedup_words).strip().title()
 
     if not clean_title or clean_title.lower() in ["video", "file", "movie"]:
-        clean_title = "Movie"
+        clean_title = "Media"
 
-    # 4. Final Formatting ပြန်လည်ပေါင်းစပ်ခြင်း
+    # 5. သင့် တောင်းဆိုချက်အတိုင်း အတိအကျ Output ပုံစံထုတ်ခြင်း
+    # A. Season + Episode ပါသည့် Series များ
     if season_number and ep_number:
-        final_name = f"{clean_title} S{season_number} Ep {ep_number}"
+        if year_str:
+            final_name = f"{clean_title} {year_str} S{season_number} Ep {ep_number}"
+        else:
+            final_name = f"{clean_title} S{season_number} Ep {ep_number}"
+
+    # B. Episode သီးသန့်ပါသည့် Series များ
     elif ep_number:
-        final_name = f"{clean_title} Ep {ep_number}"
+        if year_str:
+            final_name = f"{clean_title} {year_str} Ep {ep_number}"
+        else:
+            final_name = f"{clean_title} Ep {ep_number}"
+
+    # C. Movie များ (ခုနှစ် ပါသည်)
     elif year_str:
         final_name = f"{clean_title} {year_str}"
+
+    # D. ခုနှစ်/Ep No မပါသည့် ဗီဒီယိုများ
     else:
         final_name = clean_title
 
