@@ -1,11 +1,10 @@
 import asyncio
 import os
 import re
-from urllib.parse import quote, unquote
+from urllib.parse import quote
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse
 from telethon import TelegramClient, events
-from telethon.errors import FloodWaitError
 import uvicorn
 
 # --- [ CONFIGURATIONS ] ---
@@ -15,167 +14,38 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 
 SERVER_URL = os.environ.get("SERVER_URL", "https://your-app-name.onrender.com")
 
-bot = TelegramClient('telethon_stream_bot', API_ID, API_HASH)
+bot = TelegramClient('telethon_stream_bot', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 app = FastAPI(title="Telegram Video Streamer")
-
 
 # --- [ HELPER FUNCTIONS ] ---
 
-def myanmar_to_english_digits(text: str) -> str:
-    """မြန်မာဂဏန်းများကို အင်္ဂလိပ်ဂဏန်းသို့ ပြောင်းပေးသည့် Function"""
-    mm_digits = '၀၁၂၃၄၅၆၇၈၉'
-    en_digits = '0123456789'
-    trans_table = str.maketrans(mm_digits, en_digits)
-    return text.translate(trans_table)
-
-def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str = "") -> str:
+def get_clean_filename(message) -> str:
     """
-    API များ မသုံးဘဲ Pure Python Heuristic Logic ဖြင့် Movies/Series Title များကို
-    မမှားရအောင် အဆင့်ဆင့် စိစစ်ထုတ်ယူပေးမည့် Function
+    ဖိုင်၏ မူရင်းအမည် သို့မဟုတ် Message Text/Caption မှ Name, Year, Episode စသည်တို့ကို 
+    ဆွဲထုတ်ပြီး Clean URL Friendly ဖြစ်သော ဖိုင်အမည် ပြန်ပေးပါသည်။
     """
-    if not raw_name:
-        raw_name = ""
-
-    raw_name = myanmar_to_english_digits(raw_name)
-    caption_text = myanmar_to_english_digits(caption_text)
-    fwd_title = myanmar_to_english_digits(fwd_title)
-
-    # 1. Extension သီးသန့် ခွဲထုတ်ခြင်း (.mp4, .mkv စသည်)
-    ext = ".mp4"
-    if "." in raw_name:
-        parts = raw_name.rsplit(".", 1)
-        if len(parts[1]) <= 4:
-            raw_name, ext = parts[0], f".{parts[1]}"
-
-    full_text = f"{raw_name} {caption_text} {fwd_title}"
-
-    # 2. Season & Episode Detection (ကျောက်ထွင်းသဖွယ် တိကျစွာ ခွဲထုတ်ခြင်း)
-    ep_number = ""
-    season_number = ""
-
-    s_ep_match = re.search(r'\b[sS](\d{1,2})\s*[eE](\d{1,3})\b', full_text)
-    if s_ep_match:
-        season_number = str(int(s_ep_match.group(1))).zfill(2)
-        ep_number = str(int(s_ep_match.group(2))).zfill(2)
-    else:
-        ep_match = re.search(r'(?:ep|episode|e|အပိုင်း)\s*[\(\[\{:._-]?\s*(\d{1,3})\b', full_text, re.IGNORECASE)
-        if ep_match:
-            ep_number = str(int(ep_match.group(1))).zfill(2)
-
-    # Year (ဥပမာ 2025, 2026) detect လုပ်ခြင်း
-    year_match = re.search(r'\b(19\d{2}|20\d{2})\b', full_text)
-    year_str = f"({year_match.group(1)})" if year_match else ""
-
-    clean_title = ""
-
-    # 3. Code Name ရှာဖွေခြင်း (ဥပမာ ATID-574)
-    code_match = re.search(r'\b([a-zA-Z]{2,5}[-_]?\d{3,4})\b', full_text)
-    if code_match:
-        clean_title = code_match.group(1).upper().replace("_", "-")
-
-    if not clean_title:
-        # File name ရှိလျှင် File name ကို အဓိကယူမည်။ မရှိမှ Caption ကိုသုံးမည်။
-        target_text = raw_name if (raw_name and raw_name.lower() not in ["video", "file", "movie", "video_file"]) else f"{caption_text} {fwd_title}"
-        
-        # Symbol များ၊ Brackets များနှင့် Link များကို စတင် ရှင်းထုတ်ခြင်း
-        temp_text = re.sub(r'http\S+|www\.\S+|@\w+|t\.me/\S+', ' ', target_text)
-        temp_text = re.sub(r'\[.*?\]|\(.*?\)', ' ', temp_text)
-        temp_text = re.sub(r'[\u1000-\u109F]+', ' ', temp_text) # မြန်မာစာ ဖျက်မည်
-        temp_text = re.sub(r'[^a-zA-Z0-9\s]', ' ', temp_text) # Non-alphanumeric ဖျက်မည်
-
-        # Strict Quality & Release Noise Lists (Title ထဲ မပါနိုင်သော စာလုံးများ)
-        strict_noise = [
-            r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b360p?\b', r'\b4k\b', r'\bhd\b', r'\bfhd\b', r'\bhq\b',
-            r'\bweb\s*dl\b', r'\bweb-dl\b', r'\bwebrip\b', r'\bbluray\b', r'\bhdrip\b', r'\bhdtv\b',
-            r'\bx264\b', r'\bx265\b', r'\bhevc\b', r'\baac\b', r'\bddp?\d*\.?\d*\b', r'\b10bit\b', r'\b8bit\b', r'\bhdr\b',
-            r'\bdecensored\b', r'\bcensored\b', r'\braw\b', r'\bmmsub\b', r'\bmyanmar\s*sub\b', r'\bsubtitles?\b',
-            r'\bcrawler\b', r'\bjoined\b', r'\bedit\b', r'\bedited\b', r'\bdual\s*audio\b', r'\bmulti\s*audio\b'
-        ]
-
-        for noise in strict_noise:
-            temp_text = re.sub(noise, ' ', temp_text, flags=re.IGNORECASE)
-
-        # Context-Aware Word Filtering (စကားလုံး အစဉ်လိုက် စစ်ဆေးခြင်း)
-        raw_words = temp_text.split()
-        filtered_words = []
-
-        # Safe Words List (ကားနာမည်ထဲ ပါဝင်နိုင်ပြီး အနောက်ပိုင်းမှပါလျှင် ဖျက်ရမည့် စာလုံးများ)
-        secondary_noise = ["true", "kannada", "tamil", "telugu", "malayalam", "hindi", "english", "korean", "channel", "official", "uncut", "proper", "complete", "movie", "series"]
-
-        for idx, word in enumerate(raw_words):
-            w_lower = word.lower()
-
-            # ၁။ Year သို့မဟုတ် S/Ep ဂဏန်းဖြစ်ပါက ရပ်မည်
-            if re.match(r'^(19\d{2}|20\d{2})$', word) or re.match(r'^(s\d+|e\d+|ep\d+)$', w_lower):
-                break
-
-            # ၂။ အချိန်မတန်ဘဲ အနောက်ရောက်နေသော Language/Tag စာလုံးများကို ဖယ်ထုတ်ခြင်း
-            # (ပထမဆုံး word မဟုတ်ပါက secondary_noise ထဲပါလျှင် ဖျက်မည်)
-            if idx > 0 and w_lower in secondary_noise:
-                continue
-
-            # ၃။ Duplicate Words ဖယ်ထုတ်ခြင်း
-            if w_lower not in [x.lower() for x in filtered_words]:
-                filtered_words.append(word)
-
-        clean_title = " ".join(filtered_words).strip().title()
-
-    if not clean_title or clean_title.lower() in ["video", "file", "movie", "media"]:
-        clean_title = "Media"
-
-    # Year နှင့် S/Ep စာလုံးထပ်ခြင်းများ ရှင်းထုတ်ခြင်း
-    clean_title = re.sub(r'\(\s*(19\d{2}|20\d{2})\s*\)', '', clean_title, flags=re.IGNORECASE)
-    clean_title = re.sub(r'\b(19\d{2}|20\d{2})\b', '', clean_title, flags=re.IGNORECASE)
-    clean_title = re.sub(r'\s+', ' ', clean_title).strip(" -_.")
-
-    # 4. Final Clean Output တည်ဆောက်ခြင်း
-    parts = [clean_title]
-
-    if year_str:
-        parts.append(year_str)
-
-    if season_number:
-        parts.append(f"S{season_number}")
-
-    if ep_number:
-        parts.append(f"Ep {ep_number}")
-
-    final_name = " ".join(parts).strip()
-
-    return f"{final_name}{ext}"
-
-
-def extract_file_name(message) -> str:
-    """Telegram Message မှ File Name၊ Forward Info နှင့် Caption ကို စိစစ်ထုတ်ယူပေးမည့် Function"""
     file_name = None
-    caption = message.text or message.caption or ""
-    fwd_title = ""
-
-    if message.forward:
-        if message.forward.chat:
-            fwd_title = message.forward.chat.title or ""
-        elif message.forward.sender:
-            first_name = message.forward.sender.first_name or ""
-            last_name = message.forward.sender.last_name or ""
-            fwd_title = f"{first_name} {last_name}".strip()
-
-    if message.document and message.document.attributes:
+    
+    # 1. Telegram Document/Video Attribute ထဲမှ မူရင်းဖိုင်အမည်ကို ရှာခြင်း
+    if message.document:
         for attr in message.document.attributes:
             if hasattr(attr, 'file_name') and attr.file_name:
                 file_name = attr.file_name
                 break
-
-    if not file_name and message.video:
-        if hasattr(message.video, 'attributes'):
-            for attr in message.video.attributes:
-                if hasattr(attr, 'file_name') and attr.file_name:
-                    file_name = attr.file_name
-                    break
-
+                
+    # 2. ဖိုင်အမည် မရှိပါက Message/Caption စာသားကို ယူခြင်း
     if not file_name:
-        file_name = "Video.mp4"
+        file_name = message.text or message.caption or "video.mp4"
 
-    return clean_and_format_title(file_name, caption_text=caption, fwd_title=fwd_title)
+    # မလိုလားအပ်သော အထူးသင်္ကေတများကို ရှင်းထုတ်ပြီး Spaces များကို Hyphen/Underscore သို့ ပြောင်းခြင်း
+    file_name = re.sub(r'[\\/*?:"<>|]', '', file_name)
+    file_name = re.sub(r'\s+', '.', file_name.strip())
+    
+    # Extension မပါခဲ့ပါက .mp4 ဖြည့်ပေးခြင်း
+    if not re.search(r'\.[a-zA-Z0-9]+$', file_name):
+        file_name += ".mp4"
+        
+    return file_name
 
 
 # --- [ TELEGRAM BOT SECTION ] ---
@@ -189,32 +59,31 @@ async def video_handler(event):
     if event.message.text and event.message.text.startswith('/start'):
         return
 
-    media = event.message.video
-    if not media and event.message.document:
-        if event.message.document.mime_type and event.message.document.mime_type.startswith('video/'):
-            media = event.message.document
-
-    if media:
+    if event.message.video or (event.message.document and event.message.document.mime_type and event.message.document.mime_type.startswith('video/')):
         chat_id = event.chat_id
         message_id = event.message.id
         
-        raw_file_name = extract_file_name(event.message)
-        safe_file_name = quote(raw_file_name)
+        # ဖိုင်အမည် သို့မဟုတ် Caption မှ စာသားကို ရှင်းလင်းစွာ ရယူခြင်း
+        clean_name = get_clean_filename(event.message)
         
-        stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}/{safe_file_name}"
+        # URL Friendly ဖြစ်အောင် Encode လုပ်ခြင်း
+        encoded_name = quote(clean_name)
+        
+        # Stream Link မှာ မူရင်း/ရှင်းလင်းထားသော ဖိုင်အမည် ထည့်သွင်းခြင်း
+        stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}/{encoded_name}"
         
         response_text = (
+            f"🎬 **ဖိုင်အမည်:** `{clean_name}`\n\n"
             f"🔗 **သင့်ဗီဒီယိုအတွက် Stream Link ရပါပြီ:**\n\n"
             f"`{stream_link}`\n\n"
             f"💡 ဒီ link ကို VLC, MX Player သို့မဟုတ် Browser ထဲမှာ ထည့်သွင်းကြည့်ရှုနိုင်ပါတယ်။"
         )
         await event.reply(response_text)
 
-
 # --- [ STREAM SERVER SECTION ] ---
 
 async def tg_file_streamer(client, file, offset, limit):
-    chunk_size = 1024 * 1024
+    chunk_size = 1024 * 1024  # 1MB Chunk
     bytes_to_send = limit - offset + 1
     
     start_chunk_offset = (offset // chunk_size) * chunk_size
@@ -258,46 +127,40 @@ async def tg_file_streamer(client, file, offset, limit):
 async def root():
     return {"status": "ok", "message": "Telegram Streaming Server is running!"}
 
-@app.get("/stream/{chat_id}/{message_id}/{file_name:path}")
-async def stream_video(chat_id: int, message_id: int, file_name: str, request: Request):
+# Endpoint တွင် {filename} ပါဝင်အောင် ပြင်ဆင်ထားပါသည်
+@app.get("/stream/{chat_id}/{message_id}/{filename}")
+@app.get("/stream/{chat_id}/{message_id}")  # မူရင်း URL Structure အဟောင်းအတွက် Backward Compatibility
+async def stream_video(chat_id: int, message_id: int, filename: str = "video.mp4", request: Request = None):
     try:
         message = await bot.get_messages(chat_id, ids=message_id)
-        if not message:
-            raise HTTPException(status_code=404, detail="Message not found")
-            
         file = message.video or message.document
         if not file:
             raise HTTPException(status_code=404, detail="Media not found")
         
         file_size = file.size
         mime_type = file.mime_type or "video/mp4"
-        range_header = request.headers.get("range")
+        range_header = request.headers.get("range") if request else None
         
-        display_name = unquote(file_name)
-        
-        headers = {
-            "Content-Type": mime_type,
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "public, max-age=3600",
-            "Content-Disposition": f'inline; filename="{display_name}"'
-        }
-        
+        # Browser / Player များက ဖိုင်အမည်ကို အမှန်သိရှိစေရန် Content-Disposition header ထည့်ပေးခြင်း
+        content_disposition = f'inline; filename="{filename}"'
+
         if range_header:
             match = re.search(r"bytes=(\d+)-(\d*)", range_header)
-            if match:
-                start = int(match.group(1))
-                end = int(match.group(2)) if match.group(2) else file_size - 1
-            else:
-                start, end = 0, file_size - 1
+            start = int(match.group(1))
+            end = int(match.group(2)) if match.group(2) else file_size - 1
             
             if end >= file_size:
                 end = file_size - 1
                 
             content_length = end - start + 1
-            headers.update({
+            headers = {
                 "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
                 "Content-Length": str(content_length),
-            })
+                "Content-Type": mime_type,
+                "Content-Disposition": content_disposition,
+                "Cache-Control": "public, max-age=3600",
+            }
             
             return StreamingResponse(
                 tg_file_streamer(bot, file, start, end),
@@ -305,7 +168,13 @@ async def stream_video(chat_id: int, message_id: int, file_name: str, request: R
                 headers=headers
             )
         else:
-            headers["Content-Length"] = str(file_size)
+            headers = {
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(file_size),
+                "Content-Type": mime_type,
+                "Content-Disposition": content_disposition,
+                "Cache-Control": "public, max-age=3600",
+            }
             return StreamingResponse(
                 tg_file_streamer(bot, file, 0, file_size - 1),
                 status_code=200,
@@ -315,18 +184,9 @@ async def stream_video(chat_id: int, message_id: int, file_name: str, request: R
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
 # --- [ MAIN RUNNER SECTION ] ---
 
 async def main():
-    try:
-        await bot.start(bot_token=BOT_TOKEN)
-        print("✅ Telegram Bot Successfully Started!")
-    except FloodWaitError as e:
-        print(f"⚠️ Telegram Rate Limit! Waiting for {e.seconds} seconds...")
-        await asyncio.sleep(e.seconds)
-        await bot.start(bot_token=BOT_TOKEN)
-
     port = int(os.environ.get("PORT", 8080))
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
@@ -343,6 +203,6 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        bot.loop.run_until_complete(main())
     except KeyboardInterrupt:
         print("\n👋 Bot ရပ်နားလိုက်ပါပြီ။")
