@@ -63,7 +63,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
 
     full_text = f"{raw_name}\n{caption_text}\n{fwd_title}"
 
-    # 2. Season နှင့် Episode ဂဏန်းများ ရှာဖွေခြင်း
+    # 2. Season နှင့် Episode ဂဏန်းများ ရှာဖွေခြင်း (အတိအကျမိစေရန် Regex တိုးမြှင့်ထားသည်)
     ep_number = ""
     season_number = ""
 
@@ -72,7 +72,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         season_number = str(int(s_ep_match.group(1))).zfill(2)
         ep_number = str(int(s_ep_match.group(2))).zfill(2)
     else:
-        ep_match = re.search(r'(?:ep|episode|e|အပိုင်း)\s*[\(\[\{:._-]?\s*(\d{1,3})\b', full_text, re.IGNORECASE)
+        ep_match = re.search(r'(?:ep|episode|e|အပိုင်း)\s*[\(\[\{:._-]*\s*(\d{1,3})', full_text, re.IGNORECASE)
         if ep_match:
             ep_number = str(int(ep_match.group(1))).zfill(2)
 
@@ -83,36 +83,36 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
     # 4. TITLE စိစစ်ထုတ်ယူခြင်း
     clean_title = ""
 
-    # A. Caption/Text ထဲမှ English Title များကို ဦးစားပေး ရှာဖွေခြင်း (ဥပမာ - "Falling into your Smile")
-    lines = full_text.split('\n')
-    for line in lines:
-        line_clean = re.sub(r'http\S+|t\.me/\S+|#\w+|@\w+', '', line).strip()
-        # "EP - 2" သို့မဟုတ် "Episode 2" ကဲ့သို့ စာသားများကို Title ထဲမပါအောင် ဖယ်ထုတ်ခြင်း
-        line_clean = re.sub(r'(?:ep|episode|e|အပိုင်း)\s*[\(\[\{:._-]?\s*\d{1,3}\b.*', '', line_clean, flags=re.IGNORECASE).strip()
-        
-        # English စာလုံး အနည်းဆုံး ၂ လုံးပါဝင်ပြီး Crd, Join, Main စသည်တို့မဟုတ်သော Line ကို Title အဖြစ်ယူမည်
-        eng_words = re.findall(r'[a-zA-Z]{2,}', line_clean)
-        filtered_words = [w for w in eng_words if w.lower() not in ['crd', 'credit', 'channel', 'link', 'main', 'join', 'sub', 'mmsub', 'video']]
-        
-        if len(filtered_words) >= 2:
-            clean_title = " ".join(filtered_words).title()
+    # A. Hashtag မှ Title ယူခြင်း (ဥပမာ #KingAvatar -> King Avatar)
+    hashtags = re.findall(r'#(\w+)', full_text)
+    ignore_tags = ['1080p', '720p', '480p', '4k', 'hd', 'mmsub', 'sub', 'raw', 'crd', 'credit']
+    for tag in hashtags:
+        if tag.lower() not in ignore_tags:
+            # CamelCase စာလုံးများကို ခွဲထုတ်ပေးခြင်း (KingAvatar -> King Avatar)
+            tag_spaced = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', tag)
+            clean_title = tag_spaced.replace("_", " ").strip().title()
             break
 
-    # B. အထက်ပါနည်းဖြင့် မရပါက Code Name (ဥပမာ ATID-574) ရှာဖွေခြင်း
+    # B. Hashtag မပါလျှင် Caption ထဲမှ Clean English Title ကို ရှာဖွေခြင်း
+    if not clean_title:
+        lines = full_text.split('\n')
+        ignore_words = ['translation', 'translator', 'crd', 'credit', 'channel', 'link', 'main', 'join', 'sub', 'mmsub', 'video', 'soulkingdom', 'yewaiyan']
+        for line in lines:
+            line_clean = re.sub(r'http\S+|t\.me/\S+|#\w+|@\w+', '', line).strip()
+            line_clean = re.sub(r'(?:ep|episode|e|အပိုင်း)\s*[\(\[\{:._-]*\s*\d{1,3}.*', '', line_clean, flags=re.IGNORECASE).strip()
+            
+            eng_words = re.findall(r'[a-zA-Z]{2,}', line_clean)
+            filtered_words = [w for w in eng_words if w.lower() not in ignore_words]
+            
+            if len(filtered_words) >= 2:
+                clean_title = " ".join(filtered_words).title()
+                break
+
+    # C. Code Name (ဥပမာ ATID-574) ရှာဖွေခြင်း
     if not clean_title:
         code_match = re.search(r'\b([a-zA-Z]{2,5}[-_]?\d{3,4})\b', full_text)
         if code_match:
             clean_title = code_match.group(1).upper().replace("_", "-")
-
-    # C. Hashtag မှ Title ယူခြင်း (Crd, 1080p Tag များကို ပယ်သည်)
-    if not clean_title:
-        hashtags = re.findall(r'#(\w+)', full_text)
-        ignore_tags = ['1080p', '720p', '480p', '4k', 'hd', 'mmsub', 'sub', 'raw', 'crd', 'credit']
-        for tag in hashtags:
-            if tag.lower() not in ignore_tags:
-                tag_spaced = re.sub(r'([a-z])([A-Z])', r'\1 \2', tag)
-                clean_title = tag_spaced.replace("_", " ").strip().title()
-                break
 
     # D. raw_name (Filename) ထဲမှ ရှာဖွေခြင်း
     if not clean_title and raw_name and raw_name.lower() not in ["video", "file", "movie", "crd", "crd.mp4"]:
