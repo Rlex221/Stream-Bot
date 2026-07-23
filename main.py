@@ -9,12 +9,14 @@ from telethon.errors import FloodWaitError
 import uvicorn
 
 # --- [ CONFIGURATIONS ] ---
-API_ID = int(os.environ.get("API_ID", 0))
+API_ID = int(os.environ.get("API_ID", 0))  # သို့မဟုတ် int("YOUR_API_ID")
 API_HASH = os.environ.get("API_HASH", "YOUR_API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 
+# သင့် Render / Railway ရဲ့ Domain URL ကို ဒီနေရာမှာ ထည့်ပါ (အနောက်မှာ / မပါရပါ)
 SERVER_URL = os.environ.get("SERVER_URL", "https://your-app-name.onrender.com")
 
+# Telethon Telegram Client
 bot = TelegramClient('telethon_stream_bot', API_ID, API_HASH)
 app = FastAPI(title="Telegram Video Streamer")
 
@@ -28,99 +30,118 @@ def myanmar_to_english_digits(text: str) -> str:
     trans_table = str.maketrans(mm_digits, en_digits)
     return text.translate(trans_table)
 
-def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str = "") -> str:
-    """ရှုပ်ထွေးနေသော စာသားများနှင့် ကြော်ငြာများကို ဖယ်ထုတ်ပြီး Clean Title ထုတ်ပေးသည့် Function"""
+def clean_and_format_title(raw_name: str, caption_text: str = "", forward_from_name: str = "") -> str:
+    """
+    Title ဖော်ထုတ်ပေးမည့် Advanced Logic
+    1. Telegram File Name အစစ်ပါရင် အရင်ယူမည်။
+    2. မပါရင် Forward Channel Name ကို ဦးစားပေးယူမည်။
+    3. Code Name (ATID-574 စသည်) သို့မဟုတ် Caption ထဲမှ Episode / Season များကို ပေါင်းစပ်မည်။
+    """
     if not raw_name:
         raw_name = ""
 
     raw_name = myanmar_to_english_digits(raw_name)
     caption_text = myanmar_to_english_digits(caption_text)
-    fwd_title = myanmar_to_english_digits(fwd_title)
+    forward_from_name = myanmar_to_english_digits(forward_from_name)
 
-    # Extension ခွဲထုတ်ခြင်း (.mp4, .mkv, etc.)
+    # Extension မူရင်းအတိုင်း ခွဲထုတ်မည် (.mp4, .mkv, .avi စသည်)
     ext = ".mp4"
     if "." in raw_name:
         parts = raw_name.rsplit(".", 1)
-        if len(parts[1]) <= 4 and re.match(r'^[a-zA-Z0-9]+$', parts[1]):
+        if len(parts[1]) <= 4:
             raw_name, ext = parts[0], f".{parts[1]}"
 
-    # Forward Message ခင်းကျင်းထားပါက ထို Name ကို ပိုမို ဦးစားပေး စစ်ဆေးမည်
-    full_search_text = f"{fwd_title} {raw_name} {caption_text}"
+    # တကယ်လို့ မူရင်း File Name ရှိနေပြီး မူလ Default မဟုတ်ရင် Direct သုံးမည်
+    if raw_name and raw_name.lower() not in ["video", "file", "movie", "video.mp4", "file.mp4"]:
+        # အပို စာလုံးအချို့ သန့်စင်ပြီး မူရင်းအတိုင်း ပြန်ပေးမည်
+        return f"{raw_name}{ext}"
 
-    # Season နှင့် Episode ဂဏန်းများ ရှာဖွေခြင်း
+    # File Name မပါပါက Forward Channel Name သို့မဟုတ် Caption ထဲမှ စာသားကို ယူမည်
+    full_text = f"{forward_from_name} {caption_text}".strip()
+
+    # Episode & Season ရှာဖွေခြင်း
     ep_number = ""
     season_number = ""
 
-    # Season (S01, Season 1)
-    season_match = re.search(r'\b(?:s|season)\s*[\.\_\-]?\s*(\d{1,2})\b', full_search_text, re.IGNORECASE)
-    if season_match:
-        season_number = str(int(season_match.group(1))).zfill(2)
+    s_ep_match = re.search(r'\bs(\d{1,2})\s*e(\d{1,3})\b', full_text, re.IGNORECASE)
+    if s_ep_match:
+        season_number = str(int(s_ep_match.group(1))).zfill(2)
+        ep_number = str(int(s_ep_match.group(2))).zfill(2)
+    else:
+        ep_match = re.search(r'(?:ep|episode|e|အပိုင်း)\s*[\(\[\{:._-]?\s*(\d{1,3})\b', full_text, re.IGNORECASE)
+        if ep_match:
+            ep_number = str(int(ep_match.group(1))).zfill(2)
 
-    # Episode (Ep 01, E01, Episode 1, အပိုင်း ၁)
-    ep_match = re.search(r'\b(?:ep|episode|e|အပိုင်း)\s*[\(\[\{:._-]?\s*(\d{1,3})\b', full_search_text, re.IGNORECASE)
-    if ep_match:
-        ep_number = str(int(ep_match.group(1))).zfill(2)
+    # Movie Code (ဥပမာ- ATID-574, SSIS-123) ရှာဖွေခြင်း
+    code_match = re.search(r'\b([a-zA-Z]{2,5}[-_]\d{3,4})\b', full_text)
+    movie_code = code_match.group(1).upper() if code_match else ""
 
-    # Year (1990 - 2029)
-    year_match = re.search(r'\b(19\d{2}|20[0-2]\d)\b', full_search_text)
-    year_str = f"({year_match.group(1)})" if year_match else ""
-
-    # TITLE ဦးစားပေး သတ်မှတ်ခြင်း
     clean_title = ""
 
-    # 1. Forward လုပ်ထားသော Channel Name ရှိပါက (ဥပမာ Dr. Romantic (2020) - Season (1))
-    if fwd_title:
-        # Season / Episode ပါရင် စာသားရှင်းပေးမည်
-        temp_fwd = re.sub(r'\(?\bSeason\s*\d+\)?', '', fwd_title, flags=re.IGNORECASE)
-        temp_fwd = re.sub(r'\b(19\d{2}|20[0-2]\d)\b', '', temp_fwd)
-        temp_fwd = re.sub(r'[^a-zA-Z0-9\s]', ' ', temp_fwd)
-        clean_title = " ".join(temp_fwd.split()).strip().title()
+    # A. Forward From Name ရှိပါက ၎င်းကို အဓိက Title အဖြစ်ယူမည် (ဥပမာ- Dr. Romantic (2020) - Season (1))
+    if forward_from_name:
+        # Link များနှင့် မလိုအပ်သော Tag များ ဖျက်မည်
+        clean_title = re.sub(r'http\S+|www\.\S+|@\w+', '', forward_from_name).strip()
 
-    # 2. Forward Name မရှိပါက Telegram File Name မူရင်းကို အသုံးချမည်
-    if not clean_title and raw_name and not raw_name.lower().startswith(("video", "file", "doc")):
-        temp_raw = re.sub(r'\b(19\d{2}|20[0-2]\d)\b', '', raw_name)
-        temp_raw = re.sub(r'\b(?:ep|episode|e|s|season)\s*\d+\b', '', temp_raw, flags=re.IGNORECASE)
-        temp_raw = re.sub(r'[^a-zA-Z0-9\s]', ' ', temp_raw)
-        clean_title = " ".join(temp_raw.split()).strip().title()
+    # B. Movie Code မိပါက Code ကို Title အဖြစ် သုံးမည်
+    elif movie_code:
+        clean_title = movie_code
 
-    # 3. ပါလာသော Caption ထဲမှ Hashtag စစ်ထုတ်ခြင်း (#DrRomantic)
+    # C. အထက်ပါအတိုင်း မမိပါက Caption ထဲမှ Title စာသား ထုတ်ယူမည်
     if not clean_title:
-        ignore_tags = ['1080p', '720p', '480p', '360p', '4k', 'hd', 'fhd', 'bluray', 'mmsub', 'sub', 'engsub']
-        hashtags = re.findall(r'#(\w+)', full_search_text)
+        ignore_tags = [
+            '1080p', '720p', '480p', '360p', '4k', 'hd', 'fhd', 'bluray',
+            'webrip', 'webdl', 'mmsub', 'sub', 'engsub', 'esub', 'raw'
+        ]
+        
+        # Hashtags ရှာဖွေခြင်း
+        hashtags = re.findall(r'#(\w+)', full_text)
         for tag in hashtags:
             if tag.lower() not in ignore_tags:
                 tag_spaced = re.sub(r'([a-z])([A-Z])', r'\1 \2', tag)
                 clean_title = tag_spaced.replace("_", " ").strip().title()
                 break
 
-    # 4. စာသားရှင်းထုတ်ပြီး နောက်ဆုံး Title သတ်မှတ်ခြင်း
-    if not clean_title or clean_title.lower() in ["video", "file", "movie", "telegram"]:
-        clean_title = "Media Movie"
+        if not clean_title:
+            unwanted_patterns = [
+                r'main\s*channel\s*link', r'translation\s*-\s*\w+', r'uploader\s*-\s*\w+',
+                r'http\S+', r'www\.\S+', r'@\w+', r't\.me\/\S+'
+            ]
+            temp_text = full_text
+            for pattern in unwanted_patterns:
+                temp_text = re.sub(pattern, ' ', temp_text, flags=re.IGNORECASE)
 
-    # Formatting ပြန်ပေါင်းခြင်း
-    if season_number and ep_number:
-        final_name = f"{clean_title} S{season_number} Ep {ep_number}"
-    elif ep_number:
-        final_name = f"{clean_title} Ep {ep_number}"
-    elif year_str:
-        final_name = f"{clean_title} {year_str}"
-    else:
-        final_name = clean_title
+            temp_text = re.sub(r'[\u1000-\u109F]+', ' ', temp_text) # မြန်မာစာ ဖျက်မည်
+            temp_text = re.sub(r'[^a-zA-Z0-9\s-]', ' ', temp_text)
+            
+            words = temp_text.split()
+            dedup_words = [w for w in words if w.lower() not in ignore_tags and len(w) > 1]
+            if dedup_words:
+                clean_title = " ".join(dedup_words[:4]).strip().title()
+
+    if not clean_title:
+        clean_title = "Video"
+
+    # Title အချောသတ် ပေါင်းစပ်ခြင်း
+    final_name = clean_title
+
+    # Season/Ep ထည့်သွင်းခြင်း (Title ထဲမှာ Season/Ep မပါသေးပါက)
+    if ep_number and f"ep {ep_number}".lower() not in final_name.lower():
+        if season_number and f"s{season_number}".lower() not in final_name.lower():
+            final_name = f"{final_name} S{season_number} Ep {ep_number}"
+        else:
+            final_name = f"{final_name} Ep {ep_number}"
 
     return f"{final_name}{ext}"
 
 
-def extract_file_name(message) -> str:
-    """Telegram Message ထဲမှ Forward Name, File Name နှင့် Caption အကုန်ဆွဲထုတ်ပေးသည့် Function"""
+async def extract_file_name(message) -> str:
+    """Telegram Message မှ Original File Name, Forward Channel Name နှင့် Caption တို့ကို ထုတ်ယူပေးသည့် Function"""
     file_name = None
-    caption = message.text or ""
-    fwd_title = ""
+    caption = message.text or message.caption or ""
+    forward_from_name = ""
 
-    # Forward လုပ်ထားသည့် Channel / Chat Name ရှိပါက ယူမည်
-    if message.forward and message.forward.chat:
-        fwd_title = message.forward.chat.title or ""
-
-    # Document / Video File Name စစ်ဆေးခြင်း
+    # 1. Telegram Original File Name စစ်ဆေးခြင်း
     if message.document and message.document.attributes:
         for attr in message.document.attributes:
             if hasattr(attr, 'file_name') and attr.file_name:
@@ -134,10 +155,16 @@ def extract_file_name(message) -> str:
                     file_name = attr.file_name
                     break
 
-    if not file_name:
-        file_name = "Video.mp4"
+    # 2. Forward Message မှ Channel/Sender Name စစ်ဆေးခြင်း
+    if message.forward:
+        if message.forward.chat:
+            forward_from_name = message.forward.chat.title or ""
+        elif message.forward.sender:
+            forward_from_name = f"{message.forward.sender.first_name or ''} {message.forward.sender.last_name or ''}".strip()
+        elif message.forward.from_name:
+            forward_from_name = message.forward.from_name
 
-    return clean_and_format_title(file_name, caption_text=caption, fwd_title=fwd_title)
+    return clean_and_format_title(file_name, caption_text=caption, forward_from_name=forward_from_name)
 
 
 # --- [ TELEGRAM BOT SECTION ] ---
@@ -160,7 +187,7 @@ async def video_handler(event):
         chat_id = event.chat_id
         message_id = event.message.id
         
-        raw_file_name = extract_file_name(event.message)
+        raw_file_name = await extract_file_name(event.message)
         safe_file_name = quote(raw_file_name)
         
         stream_link = f"{SERVER_URL}/stream/{chat_id}/{message_id}/{safe_file_name}"
