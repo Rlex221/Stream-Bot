@@ -41,7 +41,7 @@ def myanmar_to_english_digits(text: str) -> str:
     trans_table = str.maketrans(mm_digits, en_digits)
     return text.translate(trans_table)
 
-def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str = "", prev_text: str = "") -> str:
+def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str = "") -> str:
     """
     Movies: Title + Year
     Series: Title + (Year) + Season/Ep No 
@@ -53,7 +53,6 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
     raw_name = myanmar_to_english_digits(raw_name)
     caption_text = myanmar_to_english_digits(caption_text)
     fwd_title = myanmar_to_english_digits(fwd_title)
-    prev_text = myanmar_to_english_digits(prev_text)
 
     # 1. Extension သီးသန့် ခွဲထုတ်ခြင်း (.mp4, .mkv စသည်)
     ext = ".mp4"
@@ -62,10 +61,9 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         if len(parts[1]) <= 4:
             raw_name, ext = parts[0], f".{parts[1]}"
 
-    # အထက်က မက်ဆေ့ခ်ျစာသားပါ ပေါင်းစပ်စိစစ်ခြင်း
-    full_text = f"{raw_name}\n{caption_text}\n{prev_text}\n{fwd_title}"
+    full_text = f"{raw_name}\n{caption_text}\n{fwd_title}"
 
-    # 2. Season နှင့် Episode ဂဏန်းများ ရှာဖွေခြင်း
+    # 2. Season နှင့် Episode ဂဏန်းများ ရှာဖွေခြင်း (အတိအကျမိစေရန် Regex တိုးမြှင့်ထားသည်)
     ep_number = ""
     season_number = ""
 
@@ -85,15 +83,12 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
     # 4. TITLE စိစစ်ထုတ်ယူခြင်း
     clean_title = ""
 
-    # A. Code Name (ဥပမာ SSIS 571, SSIS-571, ATID-574) ကို ထိပ်ဆုံးဦးစားပေး ရှာဖွေခြင်း
+    # A. Code Name (ဥပမာ SSIS 571, ATID-574, SSIS-001) ရှာဖွေခြင်း - Space ပါသည်အထိ မိအောင် Regex ပြင်ဆင်ထားသည်
     code_match = re.search(r'\b([a-zA-Z]{2,5})\s*[-_]?\s*(\d{3,4})\b', full_text)
     if code_match:
-        prefix = code_match.group(1).upper()
-        digits = code_match.group(2)
-        if prefix not in ['HTTP', 'HTTPS', 'TME']:
-            clean_title = f"{prefix}-{digits}"
+        clean_title = f"{code_match.group(1).upper()}-{code_match.group(2)}"
 
-    # B. Code Name မတွေ့ပါက Hashtag မှ Title ယူခြင်း (ဥပမာ #KingAvatar -> King Avatar)
+    # B. Hashtag မှ Title ယူခြင်း (ဥပမာ #KingAvatar -> King Avatar)
     if not clean_title:
         hashtags = re.findall(r'#(\w+)', full_text)
         ignore_tags = ['1080p', '720p', '480p', '4k', 'hd', 'mmsub', 'sub', 'raw', 'crd', 'credit', 'jav', 'movies', 'movie']
@@ -123,24 +118,24 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
                 clean_title = " ".join(filtered_words).title()
                 break
 
-    # D. raw_name (Filename) ထဲမှ ရှာဖွေခြင်း
+    # D. raw_name (Filename) ထဲမှ စိစစ်ပြီး ရှာဖွေခြင်း
     if not clean_title and raw_name and raw_name.lower() not in ["video", "file", "movie", "crd", "crd.mp4"]:
         eng_words = re.findall(r'[a-zA-Z]{2,}', raw_name)
-        filtered_words = [w for w in eng_words if w.lower() not in ['crd', 'credit', 'video', 'mp4', 'mkv', 'jav', 'mm', 'movies', 'movie']]
+        filtered_words = [w for w in eng_words if w.lower() not in ['crd', 'credit', 'video', 'mp4', 'mkv', 'jav', 'mm', 'movies', 'movie', 'sub']]
         if filtered_words:
             clean_title = " ".join(filtered_words).title()
 
     # E. မရှိပါက Forward Title ထဲမှ စိစစ်ခြင်း
     if not clean_title and fwd_title:
         eng_words = re.findall(r'[a-zA-Z]{2,}', fwd_title)
-        filtered_words = [w for w in eng_words if w.lower() not in ['crd', 'credit', 'video', 'mp4', 'mkv', 'jav', 'mm', 'movies', 'movie']]
+        filtered_words = [w for w in eng_words if w.lower() not in ['crd', 'credit', 'video', 'mp4', 'mkv', 'jav', 'mm', 'movies', 'movie', 'sub']]
         if filtered_words:
             clean_title = " ".join(filtered_words).title()
 
-    if not clean_title or clean_title.lower() in ["video", "file", "movie", "crd", "media"]:
+    if not clean_title or clean_title.lower() in ["video", "file", "movie", "crd", "media", "sub"]:
         clean_title = "Media"
 
-    # 5. Output Format ပြုလုပ်ခြင်း
+    # 5. သင့် တောင်းဆိုချက်အတိုင်း အတိအကျ Output ပုံစံထုတ်ခြင်း
     # A. Season + Episode ပါသည့် Series များ
     if season_number and ep_number:
         if year_str:
@@ -167,21 +162,12 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
 
 
 async def extract_file_name(message) -> str:
-    """Telegram Message မှ File Name၊ Forward Info၊ Caption နှင့် Previous Message ကို စိစစ်ထုတ်ယူပေးမည့် Function"""
+    """Telegram Message မှ File Name၊ Forward Info၊ Caption နှင့် Reply/Prev Context ကို စိစစ်ထုတ်ယူပေးမည့် Function"""
     file_name = None
     caption = message.text or message.caption or ""
     fwd_title = ""
-    prev_text = ""
 
-    # အထက်က Message အဟောင်း ရယူစစ်ဆေးခြင်း (အညွှန်းစာ ခွဲတင်ထားသည့် Post များအတွက်)
-    try:
-        if message.id > 1:
-            prev_msg = await bot.get_messages(message.chat_id, ids=message.id - 1)
-            if prev_msg and (prev_msg.text or prev_msg.caption):
-                prev_text = prev_msg.text or prev_msg.caption or ""
-    except Exception:
-        pass
-
+    # ၁။ Forward Title ယူခြင်း
     if message.forward:
         if message.forward.chat:
             fwd_title = message.forward.chat.title or ""
@@ -190,6 +176,23 @@ async def extract_file_name(message) -> str:
             last_name = message.forward.sender.last_name or ""
             fwd_title = f"{first_name} {last_name}".strip()
 
+    # ၂။ Reply ပြုလုပ်ထားသော Message ရှိပါက ထို Message ထဲမှ စာတမ်းကိုပါ ဆွဲယူခြင်း
+    if message.is_reply:
+        reply_msg = await message.get_reply_message()
+        if reply_msg and (reply_msg.text or reply_msg.caption):
+            reply_text = reply_msg.text or reply_msg.caption or ""
+            caption = f"{reply_text}\n{caption}"
+    else:
+        # Reply မဟုတ်ပါက အထက်နားက Message (ဥပမာ- စာတမ်းသီးသန့် Post) ကို ရှာဖွေစိစစ်ပေးခြင်း
+        try:
+            prev_msg = await bot.get_messages(message.chat_id, ids=message.id - 1)
+            if prev_msg and (prev_msg.text or prev_msg.caption) and not (prev_msg.video or prev_msg.document):
+                prev_text = prev_msg.text or prev_msg.caption or ""
+                caption = f"{prev_text}\n{caption}"
+        except Exception:
+            pass
+
+    # ၃။ File Name ယူခြင်း
     if message.document and message.document.attributes:
         for attr in message.document.attributes:
             if hasattr(attr, 'file_name') and attr.file_name:
@@ -206,7 +209,7 @@ async def extract_file_name(message) -> str:
     if not file_name:
         file_name = "Video.mp4"
 
-    return clean_and_format_title(file_name, caption_text=caption, fwd_title=fwd_title, prev_text=prev_text)
+    return clean_and_format_title(file_name, caption_text=caption, fwd_title=fwd_title)
 
 
 # --- [ TELEGRAM BOT SECTION ] ---
