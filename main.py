@@ -49,7 +49,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
 
     full_text = f"{raw_name} {caption_text} {fwd_title}"
 
-    # 2. Season & Episode Detection
+    # 2. Season & Episode Detection (ကျောက်ထွင်းသဖွယ် တိကျစွာ ခွဲထုတ်ခြင်း)
     ep_number = ""
     season_number = ""
 
@@ -74,15 +74,16 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         clean_title = code_match.group(1).upper().replace("_", "-")
 
     if not clean_title:
+        # File name ရှိလျှင် File name ကို အဓိကယူမည်။ မရှိမှ Caption ကိုသုံးမည်။
         target_text = raw_name if (raw_name and raw_name.lower() not in ["video", "file", "movie", "video_file"]) else f"{caption_text} {fwd_title}"
         
-        # Link များနှင့် Symbols များကို ဖျက်ခြင်း
+        # Symbol များ၊ Brackets များနှင့် Link များကို စတင် ရှင်းထုတ်ခြင်း
         temp_text = re.sub(r'http\S+|www\.\S+|@\w+|t\.me/\S+', ' ', target_text)
         temp_text = re.sub(r'\[.*?\]|\(.*?\)', ' ', temp_text)
-        temp_text = re.sub(r'[\u1000-\u109F]+', ' ', temp_text)
-        temp_text = re.sub(r'[^a-zA-Z0-9\s]', ' ', temp_text)
+        temp_text = re.sub(r'[\u1000-\u109F]+', ' ', temp_text) # မြန်မာစာ ဖျက်မည်
+        temp_text = re.sub(r'[^a-zA-Z0-9\s]', ' ', temp_text) # Non-alphanumeric ဖျက်မည်
 
-        # Quality & Release Technical Tags များ
+        # Strict Quality & Release Noise Lists (Title ထဲ မပါနိုင်သော စာလုံးများ)
         strict_noise = [
             r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b360p?\b', r'\b4k\b', r'\bhd\b', r'\bfhd\b', r'\bhq\b',
             r'\bweb\s*dl\b', r'\bweb-dl\b', r'\bwebrip\b', r'\bbluray\b', r'\bhdrip\b', r'\bhdtv\b',
@@ -94,22 +95,26 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         for noise in strict_noise:
             temp_text = re.sub(noise, ' ', temp_text, flags=re.IGNORECASE)
 
-        # Context-Aware Word Filtering
+        # Context-Aware Word Filtering (စကားလုံး အစဉ်လိုက် စစ်ဆေးခြင်း)
         raw_words = temp_text.split()
         filtered_words = []
 
+        # Safe Words List (ကားနာမည်ထဲ ပါဝင်နိုင်ပြီး အနောက်ပိုင်းမှပါလျှင် ဖျက်ရမည့် စာလုံးများ)
         secondary_noise = ["true", "kannada", "tamil", "telugu", "malayalam", "hindi", "english", "korean", "channel", "official", "uncut", "proper", "complete", "movie", "series"]
 
         for idx, word in enumerate(raw_words):
             w_lower = word.lower()
 
+            # ၁။ Year သို့မဟုတ် S/Ep ဂဏန်းဖြစ်ပါက ရပ်မည်
             if re.match(r'^(19\d{2}|20\d{2})$', word) or re.match(r'^(s\d+|e\d+|ep\d+)$', w_lower):
                 break
 
-            # ကားနာမည် အရှေ့ဆုံး စကားလုံး မဟုတ်ပါက မလိုအပ်သော Tag စာလုံးများကို ဖယ်ထုတ်မည်
+            # ၂။ အချိန်မတန်ဘဲ အနောက်ရောက်နေသော Language/Tag စာလုံးများကို ဖယ်ထုတ်ခြင်း
+            # (ပထမဆုံး word မဟုတ်ပါက secondary_noise ထဲပါလျှင် ဖျက်မည်)
             if idx > 0 and w_lower in secondary_noise:
                 continue
 
+            # ၃။ Duplicate Words ဖယ်ထုတ်ခြင်း
             if w_lower not in [x.lower() for x in filtered_words]:
                 filtered_words.append(word)
 
@@ -118,12 +123,12 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
     if not clean_title or clean_title.lower() in ["video", "file", "movie", "media"]:
         clean_title = "Media"
 
-    # Clean duplicates
+    # Year နှင့် S/Ep စာလုံးထပ်ခြင်းများ ရှင်းထုတ်ခြင်း
     clean_title = re.sub(r'\(\s*(19\d{2}|20\d{2})\s*\)', '', clean_title, flags=re.IGNORECASE)
     clean_title = re.sub(r'\b(19\d{2}|20\d{2})\b', '', clean_title, flags=re.IGNORECASE)
     clean_title = re.sub(r'\s+', ' ', clean_title).strip(" -_.")
 
-    # 4. Final Formatting
+    # 4. Final Clean Output တည်ဆောက်ခြင်း
     parts = [clean_title]
 
     if year_str:
