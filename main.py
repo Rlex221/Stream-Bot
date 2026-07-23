@@ -63,7 +63,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
 
     full_text = f"{raw_name}\n{caption_text}\n{fwd_title}"
 
-    # 2. Season နှင့် Episode ဂဏန်းများ ရှာဖွေခြင်း
+    # 2. Season နှင့် Episode ဂဏန်းများ ရှာဖွေခြင်း (အတိအကျမိစေရန် Regex တိုးမြှင့်ထားသည်)
     ep_number = ""
     season_number = ""
 
@@ -83,37 +83,30 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
     # 4. TITLE စိစစ်ထုတ်ယူခြင်း
     clean_title = ""
 
-    # A. Code Name (ဥပမာ - ABW-123, ATID-574, SSIS-001) ရှာဖွေခြင်း
-    code_match = re.search(r'\b([a-zA-Z]{2,5}[-_]?\d{3,4})\b', full_text)
-    if code_match:
-        clean_title = code_match.group(1).upper().replace("_", "-")
+    # A. Hashtag မှ Title ယူခြင်း (ဥပမာ #KingAvatar -> King Avatar)
+    hashtags = re.findall(r'#(\w+)', full_text)
+    ignore_tags = ['1080p', '720p', '480p', '4k', 'hd', 'mmsub', 'sub', 'raw', 'crd', 'credit', 'jav', 'movies', 'movie']
+    for tag in hashtags:
+        if tag.lower() not in ignore_tags:
+            tag_spaced = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', tag)
+            clean_title = tag_spaced.replace("_", " ").strip().title()
+            break
 
-    # B. raw_name (Telegram File Name စစ်စစ်) မှ Title ထုတ်ယူခြင်း
-    if not clean_title and raw_name and raw_name.lower() not in ["video", "file", "movie", "crd", "crd.mp4", "video.mp4"]:
-        temp_raw = re.sub(r'[\._-]', ' ', raw_name)
-        temp_raw = re.sub(r'\b(1080p|720p|480p|4k|hd|webrip|bluray|x264|x265|aac)\b', '', temp_raw, flags=re.IGNORECASE)
-        temp_raw = re.sub(r'\b(19\d{2}|20\d{2})\b', '', temp_raw)
-        temp_raw = re.sub(r'\bs\d{1,2}\s*e\d{1,3}\b', '', temp_raw, flags=re.IGNORECASE)
-        temp_raw = re.sub(r'\b(?:ep|episode|e)\s*\d{1,3}\b', '', temp_raw, flags=re.IGNORECASE)
+    # B. Code Name (ဥပမာ ATID-574, SSIS-001) ရှာဖွေခြင်း
+    if not clean_title:
+        code_match = re.search(r'\b([a-zA-Z]{2,5}[-_]?\d{3,4})\b', full_text)
+        if code_match:
+            clean_title = code_match.group(1).upper().replace("_", "-")
+
+    # C. Caption / File Name ထဲမှ Clean English Title ကို ရှာဖွေခြင်း
+    if not clean_title:
+        ignore_words = [
+            'translation', 'translator', 'crd', 'credit', 'channel', 'link', 'main', 'join', 
+            'sub', 'mmsub', 'video', 'soulkingdom', 'yewaiyan', 'premiumhd', 'premium', 
+            'hd', 'jav', 'mm', 'movies', 'movie', 'telegram', 'https', 'http', 'tme'
+        ]
         
-        words = temp_raw.strip().split()
-        if words:
-            clean_title = " ".join(words).title()
-
-    # C. Hashtag မှ Title ယူခြင်း (#KingAvatar -> King Avatar)
-    if not clean_title:
-        hashtags = re.findall(r'#(\w+)', full_text)
-        ignore_tags = ['1080p', '720p', '480p', '4k', 'hd', 'mmsub', 'sub', 'raw', 'crd', 'credit', 'premiumhd777']
-        for tag in hashtags:
-            if tag.lower() not in ignore_tags:
-                tag_spaced = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', tag)
-                clean_title = tag_spaced.replace("_", " ").strip().title()
-                break
-
-    # D. Caption ထဲမှ Clean English Title ကို ရှာဖွေခြင်း
-    if not clean_title:
         lines = full_text.split('\n')
-        ignore_words = ['translation', 'translator', 'crd', 'credit', 'channel', 'link', 'main', 'join', 'sub', 'mmsub', 'video', 'soulkingdom', 'yewaiyan', 'premiumhd777', 'https']
         for line in lines:
             line_clean = re.sub(r'http\S+|t\.me/\S+|#\w+|@\w+', '', line).strip()
             line_clean = re.sub(r'(?:ep|episode|e|အပိုင်း)\s*[\(\[\{:._-]*\s*\d{1,3}.*', '', line_clean, flags=re.IGNORECASE).strip()
@@ -125,7 +118,21 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
                 clean_title = " ".join(filtered_words).title()
                 break
 
-    if not clean_title or clean_title.lower() in ["video", "file", "movie", "crd"]:
+    # D. raw_name (Filename) ထဲမှ စိစစ်ပြီး ရှာဖွေခြင်း
+    if not clean_title and raw_name and raw_name.lower() not in ["video", "file", "movie", "crd", "crd.mp4"]:
+        eng_words = re.findall(r'[a-zA-Z]{2,}', raw_name)
+        filtered_words = [w for w in eng_words if w.lower() not in ['crd', 'credit', 'video', 'mp4', 'mkv', 'jav', 'mm', 'movies', 'movie']]
+        if filtered_words:
+            clean_title = " ".join(filtered_words).title()
+
+    # E. မရှိပါက Forward Title ထဲမှ စိစစ်ခြင်း
+    if not clean_title and fwd_title:
+        eng_words = re.findall(r'[a-zA-Z]{2,}', fwd_title)
+        filtered_words = [w for w in eng_words if w.lower() not in ['crd', 'credit', 'video', 'mp4', 'mkv', 'jav', 'mm', 'movies', 'movie']]
+        if filtered_words:
+            clean_title = " ".join(filtered_words).title()
+
+    if not clean_title or clean_title.lower() in ["video", "file", "movie", "crd", "media"]:
         clean_title = "Media"
 
     # 5. သင့် တောင်းဆိုချက်အတိုင်း အတိအကျ Output ပုံစံထုတ်ခြင်း
