@@ -9,14 +9,12 @@ from telethon.errors import FloodWaitError
 import uvicorn
 
 # --- [ CONFIGURATIONS ] ---
-API_ID = int(os.environ.get("API_ID", 0))  # သို့မဟုတ် int("YOUR_API_ID")
+API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "YOUR_API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 
-# သင့် Render / Railway ရဲ့ Domain URL ကို ဒီနေရာမှာ ထည့်ပါ (အနောက်မှာ / မပါရပါ)
 SERVER_URL = os.environ.get("SERVER_URL", "https://your-app-name.onrender.com")
 
-# Telethon Telegram Client
 bot = TelegramClient('telethon_stream_bot', API_ID, API_HASH)
 app = FastAPI(title="Telegram Video Streamer")
 
@@ -32,7 +30,7 @@ def myanmar_to_english_digits(text: str) -> str:
 
 def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str = "") -> str:
     """
-    ဘယ် Channel က Movie / Series / Code ဖိုင်ဖြစ်ဖြစ် Title မှန်ကန်စေရန် စိစစ်ပေးသည့် Function
+    ဘယ် Channel က Movie / Series / Code ဖိုင်ဖြစ်ဖြစ် Title တိကျ မှန်ကန်စေရန် စိစစ်ပေးမည့် Function
     """
     if not raw_name:
         raw_name = ""
@@ -55,13 +53,11 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
     ep_number = ""
     season_number = ""
 
-    # S01E02 သို့မဟုတ် S1 E2
     s_ep_match = re.search(r'\bs(\d{1,2})\s*e(\d{1,3})\b', full_text, re.IGNORECASE)
     if s_ep_match:
         season_number = str(int(s_ep_match.group(1))).zfill(2)
         ep_number = str(int(s_ep_match.group(2))).zfill(2)
     else:
-        # Ep 01, Episode 1, E-01, အပိုင်း ၁
         ep_match = re.search(r'(?:ep|episode|e|အပိုင်း)\s*[\(\[\{:._-]?\s*(\d{1,3})\b', full_text, re.IGNORECASE)
         if ep_match:
             ep_number = str(int(ep_match.group(1))).zfill(2)
@@ -70,7 +66,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
     year_match = re.search(r'\b(19\d{2}|20\d{2})\b', full_text)
     year_str = f"({year_match.group(1)})" if year_match else ""
 
-    # 3. TITLE ရှာဖွေရေး Logic (ဦးစားပေး အစဉ်လိုက်)
+    # 3. TITLE ရှာဖွေရေး Logic
     clean_title = ""
 
     # မလိုအပ်သော စာသားများ၊ Site Ads များနှင့် Quality Tags များ
@@ -79,18 +75,19 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         r'translation\s*-\s*\w+', r'uploader\s*-\s*\w+', r'subbed\s*by\s*\w+',
         r'\bcrawler\b', r'\bjoined\b', r'\bjoin\b', r'\bkara\b', r'\bsu\b', r'\bmw\b',
         r'\bmyanmar\s*sub(?:titles?)?\b', r'\bmmsub(?:titles?)?\b', r'\bsubtitles?\b', r'\bsub\b',
-        r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b360p?\b', r'\b4k\b', r'\bhd\b', r'\bfhd\b',
+        r'\b1080p?\b', r'\b720p?\b', r'\b480p?\b', r'\b360p?\b', r'\b4k\b', r'\bhd\b', r'\bfhd\b', r'\bhq\b',
         r'\bweb\s*dl\b', r'\bweb-dl\b', r'\bwebrip\b', r'\bbluray\b', r'\bhdrip\b',
         r'\bx264\b', r'\bx265\b', r'\baac\b', r'\besub\b', r'\bdecensored\b', r'\bcensored\b',
-        r'\btrue\s*homie\b', r'\btamil\b', r'\benglish\b', r'\braw\b'
+        r'\btrue\s*homie\b', r'\bhomie\b', r'\btamil\b', r'\bmalayalam\b', r'\benglish\b', r'\braw\b',
+        r'\b19\d{2}\b', r'\b20\d{2}\b' # Year ဂဏန်းများကို Title ထဲမှ ခေတ္တဖျက်မည်
     ]
 
-    # A. Code Name များ ရှာဖွေခြင်း (ဥပမာ ATID-574, IPX-123, SSIS-001)
+    # A. Code Name များ ရှာဖွေခြင်း (ဥပမာ ATID-574, IPX-123)
     code_match = re.search(r'\b([a-zA-Z]{2,5}[-_]?\d{3,4})\b', full_text)
     if code_match:
         clean_title = code_match.group(1).upper().replace("_", "-")
 
-    # B. Hashtag ပါဝင်ပါက Title အဖြစ် ယူခြင်း (ဥပမာ #Thiraivi)
+    # B. Hashtag ပါဝင်ပါက Title အဖြစ် ယူခြင်း
     if not clean_title:
         hashtags = re.findall(r'#(\w+)', full_text)
         ignore_tags = ['1080p', '720p', '480p', '4k', 'hd', 'mmsub', 'sub', 'raw']
@@ -100,25 +97,11 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
                 clean_title = tag_spaced.replace("_", " ").strip().title()
                 break
 
-    # C. တကယ်လို့ File Name ရှိပြီး Video/File မဟုတ်ရင် Filter လုပ်ပြီး Title ထုတ်ခြင်း
+    # C. File Name / Caption မှ အမှန်တကယ် Title ကို ရွေးထုတ်ခြင်း
     if not clean_title:
-        base_name = raw_name.strip()
-        if base_name and base_name.lower() not in ["video", "file", "movie", "video_file"]:
-            temp_name = base_name
-            for pattern in unwanted_patterns:
-                temp_name = re.sub(pattern, ' ', temp_name, flags=re.IGNORECASE)
-            temp_name = re.sub(r'[\u1000-\u109F]+', ' ', temp_name)
-            temp_name = re.sub(r'[^a-zA-Z0-9\s]', ' ', temp_name)
-            
-            words = temp_name.split()
-            if words:
-                clean_title = " ".join(words).strip().title()
-
-    # D. အထက်ပါနည်းများ မရပါက Caption / Forward Channel Name မှ စာလုံးများကို Filter လုပ်ယူခြင်း
-    if not clean_title:
-        target_text = caption_text if caption_text else fwd_title
-        temp_text = target_text
+        target_text = raw_name if (raw_name and raw_name.lower() not in ["video", "file", "movie", "video_file"]) else f"{caption_text} {fwd_title}"
         
+        temp_text = target_text
         for pattern in unwanted_patterns:
             temp_text = re.sub(pattern, ' ', temp_text, flags=re.IGNORECASE)
 
@@ -130,13 +113,12 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         for w in words:
             if len(w) > 1 and w.lower() not in ["the", "and", "for", "with"]:
                 dedup_words.append(w)
-                if len(dedup_words) >= 4:  # စာလုံး အများဆုံး ၄ လုံးအထိပဲ Title အဖြစ်ယူမည်
+                if len(dedup_words) >= 4:
                     break
         
         if dedup_words:
             clean_title = " ".join(dedup_words).strip().title()
 
-    # မည်သို့မျှ မရှိပါက Default "Movie" ဟု သတ်မှတ်မည်
     if not clean_title or clean_title.lower() in ["video", "file", "movie"]:
         clean_title = "Movie"
 
@@ -145,7 +127,7 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
         final_name = f"{clean_title} S{season_number} Ep {ep_number}"
     elif ep_number:
         final_name = f"{clean_title} Ep {ep_number}"
-    elif year_str and year_str not in clean_title:
+    elif year_str:
         final_name = f"{clean_title} {year_str}"
     else:
         final_name = clean_title
@@ -154,12 +136,11 @@ def clean_and_format_title(raw_name: str, caption_text: str = "", fwd_title: str
 
 
 def extract_file_name(message) -> str:
-    """Telegram Message မှ File Name၊ Forward Info နှင့် Caption ကို စိစစ်ထုတ်ယူပေးသည့် Function"""
+    """Telegram Message မှ File Name၊ Forward Info နှင့် Caption ကို စိစစ်ထုတ်ယူပေးမည့် Function"""
     file_name = None
     caption = message.text or message.caption or ""
     fwd_title = ""
 
-    # Forward Message မှ Channel/Chat Name ရယူခြင်း
     if message.forward:
         if message.forward.chat:
             fwd_title = message.forward.chat.title or ""
@@ -168,14 +149,12 @@ def extract_file_name(message) -> str:
             last_name = message.forward.sender.last_name or ""
             fwd_title = f"{first_name} {last_name}".strip()
 
-    # Document File Name စစ်ဆေးခြင်း
     if message.document and message.document.attributes:
         for attr in message.document.attributes:
             if hasattr(attr, 'file_name') and attr.file_name:
                 file_name = attr.file_name
                 break
 
-    # Video Attributes စစ်ဆေးခြင်း
     if not file_name and message.video:
         if hasattr(message.video, 'attributes'):
             for attr in message.video.attributes:
@@ -225,7 +204,7 @@ async def video_handler(event):
 # --- [ STREAM SERVER SECTION ] ---
 
 async def tg_file_streamer(client, file, offset, limit):
-    chunk_size = 1024 * 1024  # 1MB Chunk
+    chunk_size = 1024 * 1024
     bytes_to_send = limit - offset + 1
     
     start_chunk_offset = (offset // chunk_size) * chunk_size
